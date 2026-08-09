@@ -62,12 +62,42 @@ fn run() -> Result<(), String> {
     print_section("Pre-flight checks");
     verify_kernel_elf(&kernel_elf)?;
     ensure_output_dir(&image_dir)?;
-    verify_llvm_objcopy()?;
+    let objcopy = verify_llvm_objcopy()?;
+
+    // Stage-2 loads the entire FAT file `kernel-x86_64` through BIOS INT 13h
+    // AH=42h. Debug sections inflate that file far beyond PT_LOAD bytes and
+    // have caused VMware legacy-BIOS NVMe reads to fail with bootloader
+    // `fail: z` while QEMU still booted the same unstripped image. Strip
+    // only non-load metadata before packaging; codegen is unchanged.
+    print_section("Stripping kernel ELF for BIOS packaging");
+    let packaged_kernel = image_dir.join("kernel-bios-packaged.elf");
+    let original_len = fs::metadata(&kernel_elf)
+        .map_err(|e| format!("cannot read kernel ELF metadata: {e}"))?
+        .len();
+    run_objcopy_strip(&objcopy, &kernel_elf, &packaged_kernel)?;
+    let packaged_len = fs::metadata(&packaged_kernel)
+        .map_err(|e| format!("cannot read stripped kernel metadata: {e}"))?
+        .len();
+    if packaged_len == 0 || packaged_len > original_len {
+        return Err(format!(
+            "stripped kernel size is invalid: original={original_len} stripped={packaged_len}"
+        ));
+    }
+    // Keep the packaged FAT file well under the ~14 MiB bootloader partition
+    // and within a practical BIOS INT 13h transfer budget.
+    const MAX_PACKAGED_KERNEL_BYTES: u64 = 4 * 1024 * 1024;
+    if packaged_len > MAX_PACKAGED_KERNEL_BYTES {
+        return Err(format!(
+            "stripped kernel is {packaged_len} bytes; limit is {MAX_PACKAGED_KERNEL_BYTES}"
+        ));
+    }
+    println!("kernel ELF original : {original_len} bytes");
+    println!("kernel ELF packaged : {packaged_len} bytes");
 
     print_section("Creating BIOS disk image");
     println!("Calling bootloader::BiosBoot::create_disk_image(...)");
 
-    match bootloader::BiosBoot::new(&kernel_elf).create_disk_image(&image) {
+    match bootloader::BiosBoot::new(&packaged_kernel).create_disk_image(&image) {
         Ok(()) => {
             println!("create_disk_image returned Ok");
         }
@@ -444,12 +474,12 @@ fn ensure_output_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn verify_llvm_objcopy() -> Result<(), String> {
+fn verify_llvm_objcopy() -> Result<PathBuf, String> {
     match llvm_tools::LlvmTools::new() {
         Ok(tools) => match tools.tool(&llvm_tools::exe("llvm-objcopy")) {
             Some(path) => {
                 println!("llvm-objcopy : {}", path.display());
-                Ok(())
+                Ok(path)
             }
             None => Err("llvm-objcopy not found in llvm-tools-preview.\n  \
                  Run: rustup component add llvm-tools-preview --toolchain nightly-2026-06-01"
@@ -460,6 +490,35 @@ fn verify_llvm_objcopy() -> Result<(), String> {
              Run: rustup component add llvm-tools-preview --toolchain nightly-2026-06-01"
         )),
     }
+}
+
+fn run_objcopy_strip(objcopy: &Path, input: &Path, output: &Path) -> Result<(), String> {
+    if output.exists() {
+        fs::remove_file(output).map_err(|e| {
+            format!(
+                "failed to remove stale packaged kernel:\n  {}\n  {e}",
+                output.display()
+            )
+        })?;
+    }
+    let status = Command::new(objcopy)
+        .args(["--strip-unneeded"])
+        .arg(input)
+        .arg(output)
+        .status()
+        .map_err(|e| format!("failed to spawn llvm-objcopy: {e}"))?;
+    if !status.success() {
+        return Err(format!(
+            "llvm-objcopy --strip-unneeded failed with status {status}"
+        ));
+    }
+    if !output.exists() {
+        return Err(format!(
+            "llvm-objcopy reported success but packaged kernel is missing:\n  {}",
+            output.display()
+        ));
+    }
+    Ok(())
 }
 
 fn locate_kernel_elf(manifest_dir: &Path, target_dir: &Path, profile: &str) -> Option<PathBuf> {

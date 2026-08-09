@@ -127,12 +127,14 @@ pub fn init() {
         crate::serial_println!(
             "virtio-net: no supported legacy PCI device; hardware network offline"
         );
+        crate::boot_diag::degrade("virtio-net", "device-absent", "network-offline");
         return;
     };
     let driver = match VirtioNet::bind(pci) {
         Ok(driver) => driver,
         Err(reason) => {
             crate::serial_println!("virtio-net: bind failed cleanly: {}", reason);
+            crate::boot_diag::degrade("virtio-net", reason, "network-offline");
             return;
         }
     };
@@ -143,6 +145,7 @@ pub fn init() {
             let mut driver = driver;
             driver.shutdown();
             crate::serial_println!("virtio-net: ownership claim failed cleanly: {}", reason);
+            crate::boot_diag::degrade("virtio-net", reason, "network-offline");
             return;
         }
     };

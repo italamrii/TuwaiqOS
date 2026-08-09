@@ -15,22 +15,24 @@ const ATA_CMD: u16 = 0x1F7;
 
 const CMD_READ: u8 = 0x20;
 const CMD_WRITE: u8 = 0x30;
+const CMD_CACHE_FLUSH: u8 = 0xE7;
 
 const STATUS_BSY: u8 = 0x80;
 const STATUS_DRQ: u8 = 0x08;
 const STATUS_ERR: u8 = 0x01;
 
 /// Wait for the primary master drive to respond (call once at boot).
-pub fn init() {
+pub fn init() -> bool {
     for _ in 0..100_000 {
         unsafe {
             let status = inb(ATA_STATUS);
             // 0xFF means no device on the bus — keep polling briefly in QEMU.
-            if status != 0xFF && status & STATUS_BSY == 0 {
-                return;
+            if status != 0 && status != 0xFF && status & STATUS_BSY == 0 {
+                return true;
             }
         }
     }
+    false
 }
 
 /// Read one 512-byte sector from the boot disk.
@@ -71,7 +73,16 @@ pub fn write_sector(lba: u32, buffer: &[u8; 512]) -> Result<(), &'static str> {
     Ok(())
 }
 
+pub fn flush() -> Result<(), &'static str> {
+    wait_not_busy()?;
+    unsafe { outb(ATA_CMD, CMD_CACHE_FLUSH) };
+    wait_not_busy()
+}
+
 fn select_drive(lba: u32) -> Result<(), &'static str> {
+    if lba >= 1 << 28 {
+        return Err("ATA LBA exceeds the 28-bit command range");
+    }
     unsafe {
         outb(ATA_DRIVE, 0xE0 | ((lba >> 24) as u8 & 0x0F));
     }

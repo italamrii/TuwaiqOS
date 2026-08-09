@@ -95,8 +95,9 @@ never clamps a corrupt length or accepts only a valid prefix.
 TuwaiqFS is mounted read-write at `/` behind the VFS. Normalized paths,
 per-process working directories, application-private mutation policy, handles,
 and user-pointer validation live above this disk format. No Ring 3 process can
-access TuwaiqFS nodes or ATA directly. Filesystem allocation, serialization,
-and disk I/O run with interrupts enabled and without a global spin lock held.
+access TuwaiqFS nodes or boot-storage drivers directly. Filesystem allocation,
+serialization, and disk I/O run with interrupts enabled and without a global
+spin lock held.
 
 ## Historical formats
 

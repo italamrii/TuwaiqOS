@@ -26,6 +26,7 @@ pub enum DmaOwnership {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegisterOwnership {
     IoPort { base: u16, bytes: u16 },
+    Mmio { physical_base: u64, bytes: u64 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +68,13 @@ impl DriverClaim {
         {
             *slot = None;
         }
+        self.active = false;
+    }
+
+    /// Keep the registry entry permanently reserved when hardware could not
+    /// be stopped safely. This deliberately prevents another driver from
+    /// rebinding a device that may still own DMA or MMIO state.
+    pub fn quarantine(&mut self) {
         self.active = false;
     }
 }

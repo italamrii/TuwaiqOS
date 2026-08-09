@@ -3,6 +3,7 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(alloc_error_handler)]
 
 extern crate alloc;
 
@@ -13,6 +14,7 @@ mod ai_bridge;
 mod allocator;
 mod apps;
 mod ata;
+mod boot_diag;
 mod display;
 mod drivers;
 mod elf;
@@ -33,6 +35,7 @@ mod paging;
 mod programs;
 mod reboot;
 mod shell;
+mod storage;
 mod syscall;
 mod task;
 mod tuwaiqfs;
@@ -60,10 +63,21 @@ static BOOTLOADER_CONFIG: BootloaderConfig = {
 entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    boot_diag::early_init();
+    boot_diag::mark(1, "kernel-entry");
     serial_println!("TuwaiqOS v0.5 kernel_main: booting");
+
+    if boot_info.memory_regions.len() == 0 {
+        boot_diag::raw_line("BOOT-WARN: boot memory map is empty; static heap fallback expected");
+    }
+    if boot_info.physical_memory_offset.into_option().is_none() {
+        boot_diag::raw_line("BOOT-WARN: physical memory offset missing");
+    }
+    boot_diag::mark(2, "boot-info-checked");
 
     // Must run before any page table exists: see `paging::enable_nx`.
     paging::enable_nx();
+    boot_diag::mark(3, "nx-enabled");
 
     memory::init_heap(
         boot_info.physical_memory_offset.into_option(),
@@ -73,11 +87,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         "heap: {} bytes online (paged, not a static array)",
         memory::HEAP_SIZE
     );
+    boot_diag::mark(4, "heap-online");
 
     // Must come after the heap (the keyboard event queue allocates) and
     // before anything relies on real interrupts, real ticks, or
     // interrupt-driven keyboard input.
     interrupts::init();
+    boot_diag::mark(5, "interrupts-online");
+
+    if keyboard::probe_controller() {
+        serial_println!("keyboard: PS/2 controller responded; IRQ input enabled");
+    } else {
+        serial_println!("keyboard: PS/2 controller absent/unresponsive; boot continues");
+        boot_diag::degrade("ps2-keyboard", "controller-absent", "serial-or-no-input");
+    }
 
     // Programs the PS/2 auxiliary device, then unmasks its IRQ line only
     // once that's done (see `interrupts::enable_mouse`'s docs for why that
@@ -90,12 +113,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         interrupts::enable_mouse();
     } else {
         serial_println!("mouse: IRQ12 remains masked; boot continues without mouse input");
+        boot_diag::degrade(
+            "ps2-mouse",
+            "init-failed-or-absent",
+            "keyboard-or-serial-only",
+        );
     }
+    boot_diag::mark(6, "input-probed");
 
-    ata::init();
-    vfs::init();
-    task::init();
     hal::init();
+    boot_diag::mark(7, "pci-discovered");
+    storage::init();
+    boot_diag::mark(8, "storage-selected");
+    vfs::init();
+    boot_diag::mark(9, "vfs-mounted");
+    task::init();
+    boot_diag::mark(10, "scheduler-online");
     if let Some(device) = hal::pci::discover().find(
         drivers::virtio::PCI_VENDOR,
         drivers::virtio::LEGACY_BLOCK_DEVICE,
@@ -106,37 +139,75 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 probe.capacity_sectors,
                 probe.first_sector_checksum
             ),
-            Err(reason) => serial_println!("virtio-blk: FAILED: {}", reason),
+            Err(reason) => {
+                serial_println!("virtio-blk: FAILED: {}", reason);
+                boot_diag::degrade("virtio-blk", reason, "continue-without-virtio-blk");
+            }
         }
     } else {
         serial_println!("virtio-blk: no supported legacy PCI device; skipped cleanly");
+        boot_diag::degrade("virtio-blk", "device-absent", "continue-without-virtio-blk");
     }
     net::init();
+    boot_diag::mark(11, "network-initialized");
+
+    if framebuffer_console::validation_self_test() {
+        serial_println!("framebuffer: validation self-test PASS");
+    } else {
+        serial_println!("framebuffer: validation self-test FAIL");
+        boot_diag::degrade(
+            "framebuffer-validation",
+            "self-test-failed",
+            "reject-before-activation",
+        );
+    }
 
     if let Some(framebuffer) = boot_info.framebuffer.as_mut() {
-        framebuffer_console::init(framebuffer);
-        framebuffer_console::clear_screen();
+        match framebuffer_console::try_init(framebuffer) {
+            Ok(()) => {
+                boot_diag::mark(12, "console-selected");
+                framebuffer_console::clear_screen();
 
-        if font8x8::DIAGNOSTIC_AT_BOOT {
-            for line in font8x8::DIAGNOSTIC_LINES {
-                framebuffer_console::println(line);
+                if font8x8::DIAGNOSTIC_AT_BOOT {
+                    for line in font8x8::DIAGNOSTIC_LINES {
+                        framebuffer_console::println(line);
+                    }
+                    framebuffer_console::println("");
+                }
+
+                framebuffer_console::println("TuwaiqOS v0.5");
+                framebuffer_console::println("AI-Native Experimental Operating System");
+                framebuffer_console::println("");
+                boot_diag::mark(13, "shell-entered");
+                shell::run(boot_info, ConsoleMode::Framebuffer);
             }
-            framebuffer_console::println("");
+            Err(reason) => {
+                serial_println!("framebuffer: rejected safely: {}; trying VGA text", reason);
+                boot_diag::degrade("framebuffer", reason, "vga-or-serial");
+            }
         }
+    } else {
+        serial_println!("framebuffer: bootloader supplied none; trying VGA text");
+        boot_diag::degrade("framebuffer", "bootloader-supplied-none", "vga-or-serial");
+    }
 
-        framebuffer_console::println("TuwaiqOS v0.5");
-        framebuffer_console::println("AI-Native Experimental Operating System");
-        framebuffer_console::println("");
-
-        shell::run(boot_info, ConsoleMode::Framebuffer);
+    let mode = if let Err(reason) = vga_buffer::try_init() {
+        serial_println!(
+            "vga: fallback unavailable: {}; continuing serial-only",
+            reason
+        );
+        boot_diag::degrade("vga-text", reason, "serial-recovery-console");
+        ConsoleMode::Serial
     } else {
         vga_buffer::clear_screen();
         vga_buffer::println("TuwaiqOS v0.5");
         vga_buffer::println("AI-Native Experimental Operating System");
         vga_buffer::println("");
-
-        shell::run(boot_info, ConsoleMode::Vga);
-    }
+        ConsoleMode::Vga
+    };
+    boot_diag::mark(12, "console-selected");
+    boot_diag::mark(13, "shell-entered");
+    shell::run(boot_info, mode);
 }
 
 #[panic_handler]
@@ -150,10 +221,25 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     // page-fault storm instead of a clean halt (see interrupts::report_fault
     // for the full story).
     serial_println!("\n=== KERNEL PANIC ===\n{}\n=====================", info);
+    serial_println!("boot: last successful stage={}", boot_diag::last_stage());
     if framebuffer_console::is_active() {
         framebuffer_console::println("");
         framebuffer_console::println("KERNEL PANIC");
     }
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
+#[alloc_error_handler]
+fn allocation_failure(layout: core::alloc::Layout) -> ! {
+    boot_diag::raw_line("ALLOCATOR FAILURE");
+    serial_println!(
+        "allocator failure: size={} align={} last_stage={}",
+        layout.size(),
+        layout.align(),
+        boot_diag::last_stage()
+    );
     loop {
         x86_64::instructions::hlt();
     }

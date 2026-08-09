@@ -8,6 +8,9 @@ use crate::vfs;
 /// Sync the filesystem and reboot the machine.
 pub fn system() -> ! {
     let _ = vfs::sync();
+    if let Err(reason) = crate::storage::prepare_reboot() {
+        crate::serial_println!("reboot: storage shutdown warning: {}", reason);
+    }
 
     unsafe {
         // Pulse the 8042 keyboard controller reset line (works in QEMU/Bochs).

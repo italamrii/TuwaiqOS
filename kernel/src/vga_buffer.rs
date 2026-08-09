@@ -10,6 +10,14 @@ const VGA_HEIGHT: usize = 25;
 /// Default color: light gray on black.
 const DEFAULT_COLOR: u8 = 0x07;
 
+pub fn try_init() -> Result<(), &'static str> {
+    let address = x86_64::VirtAddr::new(VGA_BUFFER as u64);
+    if crate::paging::translate_kernel_address(address).is_none() {
+        crate::paging::map_mmio_range(VGA_BUFFER as u64, 4096, VGA_BUFFER as u64)?;
+    }
+    Ok(())
+}
+
 static mut ROW: usize = 0;
 static mut COL: usize = 0;
 

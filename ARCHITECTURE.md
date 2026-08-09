@@ -10,7 +10,9 @@ recoverable persistent application data, a read-only FAT32 resource backend,
 and filesystem-backed application launch as the normal path. The current
 Phase 7 milestone adds HAL/PCI discovery, bounded legacy VirtIO block/network
 drivers, IPv4/DHCP/DNS, and owner-bound UDP without claiming physical-hardware
-qualification or Phase 7 completion.
+qualification or Phase 7 completion. Phase 7B adds a separate polling NVMe
+boot-storage path and early COM1/fallback diagnostics; ESXi validation remains
+pending external evidence.
 
 ```mermaid
 flowchart LR
@@ -84,8 +86,8 @@ flowchart LR
 2. `kernel_main` enables `EFER.NXE` (`paging::enable_nx`, before any page
    table exists -- see Phase 4 below), initializes the heap, then
    interrupts (GDT/TSS, IDT, PIC remap + mask, PIT timer, `sti`), then ATA,
-   VFS/TuwaiqFS, tasks, immutable PCI discovery, bounded VirtIO block
-   qualification, and networking.
+   immutable PCI discovery, NVMe-or-ATA boot-storage selection, VFS/TuwaiqFS,
+   tasks, bounded VirtIO block qualification, and networking.
 3. Framebuffer or VGA console starts; shell prints boot banner and prompt.
 
 Interrupts must come immediately after the heap: the keyboard event queue
@@ -114,8 +116,11 @@ interrupts live rather than a purely polled CPU.
 | `tuwaiqfs.rs` | TuwaiqFS v3 dual-checkpoint serialization and v2 migration |
 | `fat32.rs` | Independent read-only MBR/BPB/FAT32 backend |
 | `ata.rs` | Primary master PIO sector I/O |
+| `storage.rs` | Non-spinning NVMe/ATA boot-storage selection and serialization |
 | `hal/` | PCI discovery and explicit driver IRQ/DMA/register/teardown ownership |
+| `drivers/nvme.rs` | Bounded polling NVMe admin/I/O queues and one 512-byte namespace |
 | `drivers/virtio/` | Legacy PCI VirtIO transport, split queues, block probe, and Ethernet driver |
+| `boot_diag.rs` | Allocation-free COM1 boot stages and last-stage fault context |
 | `task.rs` | Preemptive scheduler: real TCBs, per-task stacks, context switch, user-process lifecycle, CR3/RSP0 switching |
 | `usermode.rs` | Low-level `iretq` primitive that drops CPL to 3 |
 | `elf.rs` | Minimal ELF64 loader: validates and maps `PT_LOAD` segments into a process's address space |
@@ -1014,7 +1019,9 @@ TuwaiqFS backend at /             FAT32 backend at /boot
         v                              v
 v3 dual checkpoints                validated read-only FAT chains
         |                              |
-        +------------- ATA PIO --------+
+        +------ boot-storage facade ----+
+                   |          |
+                ATA PIO     NVMe
 ```
 
 - Paths are UTF-8, at most 120 bytes (the TuwaiqFS record bound),
@@ -1049,11 +1056,12 @@ v3 dual checkpoints                validated read-only FAT chains
   restored. A mutation clones a lightweight candidate tree from that snapshot
   (file bodies remain shared immutable buffers), mutates and persists it with
   interrupts enabled, and publishes an already-built snapshot under the VFS
-  lock only after ATA success. A non-spinning atomic writer guard rejects a
-  concurrent writer as busy rather than deadlocking a preempted owner or losing
-  an update. An I/O failure therefore leaves the prior in-memory namespace
-  visible. Metadata exhaustion and injected interruption are rejected before
-  publication; a later mount ignores the uncommitted slot.
+  lock only after durable boot-storage success. A non-spinning atomic writer
+  guard rejects a concurrent writer as busy rather than deadlocking a
+  preempted owner or losing an update. An I/O failure therefore leaves the
+  prior in-memory namespace visible. Metadata exhaustion and injected
+  interruption are rejected before publication; a later mount ignores the
+  uncommitted slot.
 
 ### Current Ring 3 file/process ABI
 
@@ -1100,18 +1108,84 @@ small milestone ABI, not the future stable/versioned application ABI:
 - User-copy storage is reserved before the interrupt-safe scheduler lock is
   entered. Only bounded page validation and copying occur while the current
   address-space reference is protected; filesystem allocation, tree cloning,
-  serialization, and ATA I/O all run with interrupts enabled and without a
+  serialization, and storage I/O all run with interrupts enabled and without a
   global spin lock held.
 
 Ring 3 has no rename, shared-directory delegation, or general writable-handle
 API, and applications cannot manipulate TuwaiqFS internals directly. Delegated
 authority depends on Phase 8's versioned IPC/capability model; a user-facing
 offline repair utility is deferred to Phase 9 system tooling. FAT32 is 8.3 and
-read-only, TuwaiqFS files remain capped at 65,535 bytes, and ATA PIO is the only
-current storage transport. The current interrupt-gate syscall path also remains
+read-only, TuwaiqFS files remain capped at 65,535 bytes, and current root
+storage supports ATA PIO or one QEMU-qualified polling NVMe controller with an
+active 512-byte namespace. Physical NVMe and ESXi execution remain unqualified.
+The current interrupt-gate syscall path also remains
 non-preemptible while loading a `SPAWN` image (bounded to 65,535 bytes); moving
 filesystem reads and ELF preparation out of that interval is required before
 larger executables or general storage backends are admitted.
+
+## Phase 7B NVMe storage and early-boot diagnostics
+
+Phase 7B adds a separate NVMe backend behind the same boot-storage facade; it
+does not replace ATA PIO or the Phase 7 VirtIO block qualification driver.
+Current ownership and failure boundaries are:
+
+- PCI class `01`, subclass `08`, programming interface `02` selects an NVMe
+  candidate. BAR0 must be a checked 64-bit memory BAR between the required
+  register window and the bounded supported maximum. The mapped supervisor
+  range is writable, non-executable, uncached, and write-through.
+- The polling driver owns one controller, one active 512-byte namespace, fixed
+  page-aligned admin/I/O queues, and fixed identify/data DMA pages. Queue
+  depths, namespace scanning, doorbell arithmetic, command identifiers, LBAs,
+  PRP physical pages, and wait loops are bounded and checked.
+- Controller disable, enable, identify, I/O queue creation, read, write, flush,
+  and reset are real commands. A timeout, fatal status, or mismatched
+  completion poisons the controller until reset succeeds, so stale DMA state
+  is never reused. Cleanup disables the controller before scrubbing DMA,
+  unmapping MMIO, restoring PCI command state, and releasing ownership. If the
+  controller cannot be stopped, its ownership and DMA/MMIO state are
+  quarantined rather than exposed to a fallback driver.
+- A normal reboot flushes the filesystem and boot-storage cache, disables an
+  active NVMe controller with the same bounded ready-state wait, and only then
+  requests the platform reset.
+- TuwaiqFS checkpoint writes flush payload before publishing a committed
+  header and flush that header before publishing the new in-memory tree. An
+  injected interrupted write leaves only an uncommitted candidate.
+- COM1 is initialized before framebuffer, heap, interrupt, storage, and VFS
+  setup. Each boot stage emits an allocation-free breadcrumb, and panic, page
+  fault, GPF, boot-info, and allocator failures include the last stage. An
+  invalid or absent framebuffer falls back to VGA text when available and
+  otherwise retains a serial shell. Missing PS/2 input is non-fatal and logged.
+
+Reproducible focused verification is provided by
+`scripts/phase7b-nvme-smoke.ps1`. The BIOS image build strips non-load kernel
+ELF metadata before `bootloader::BiosBoot` packaging: stage-2 loads the entire
+FAT file `kernel-x86_64` through BIOS INT 13h AH=42h, and an unstripped debug
+ELF (~13 MiB) was correlated with VMware Workstation NVMe boots failing at
+bootloader `fail: z` after printing `loading kernel...`. `scripts/build-esxi.ps1`
+queries the installed `qemu-img` VMDK option list, takes an explicit
+virtual-hardware version, preserves the raw BIOS image, emits the primary
+`monolithicSparse` `TuwaiqOS-VMware-BIOS.vmdk` for direct attach, optionally
+emits a distinct `streamOptimized` transport VMDK, validates both with
+`qemu-img info`/`check`, and writes companion VMX/checksum/README files under
+`target/esxi/`. SHA-256 verifies transfer integrity only.
+
+QEMU verifies the driver and artifact construction but cannot qualify VMware
+Workstation or ESXi. External validation remains pending a report containing
+the hypervisor version, Legacy BIOS + NVMe (or noted substitute) settings,
+last visible boot message, and complete COM1 serial log when available. No
+physical NVMe hardware is qualified.
+
+The focused QEMU suite records ten fail-closed assertions: COM1 stage
+coverage; NVMe Identify and mount; invalid-LBA, malformed-namespace, injected
+timeout/reset, and resource-baseline checks; write/read/flush; genuine reboot
+persistence; unsupported 4 KiB namespace cleanup; NVMe-absent ATA/VirtIO
+behavior; non-fatal absent PS/2 plus framebuffer-validation failure paths;
+optional FAT32/network absence matrix; and overall kernel health. Its
+source-image hash, exact commit, serial stream, and machine-readable results
+are written beneath `target/phase7b-nvme-smoke/`. The QEMU BIOS bootloader
+supplies a framebuffer even when display output is hidden, so the suite does
+not claim an actual framebuffer-absent kernel entry; the optional boot-info
+path and VGA/serial fallback remain implemented for the external VMware test.
 
 ## Early Tuwaiq AI Preview architecture
 
@@ -1345,8 +1419,10 @@ Phase 7 separates discovery, transport, protocol, and process ownership:
   bounded. Teardown resets the device before scrubbing DMA and releasing the
   registry claim.
 - The block foundation performs a real 512-byte sector DMA read from a separate
-  VirtIO disk during focused qualification, then resets and scrubs. TuwaiqFS
-  remains on its existing ATA path; Phase 7 does not silently replace storage.
+  VirtIO disk during focused qualification, then resets and scrubs. It remains
+  a qualification transport rather than a root backend. TuwaiqFS uses the
+  boot-storage facade with NVMe preferred when its strict namespace contract is
+  satisfied and ATA PIO retained as fallback.
 - `net` runs smoltcp's Ethernet/ARP/IPv4/UDP/DHCP/DNS state over VirtIO. The
   stack is protected by a non-spinning atomic lease. No network IRQ path exists;
   a competing caller gets `network busy`, and scheduler sleeps occur only after

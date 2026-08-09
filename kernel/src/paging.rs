@@ -335,6 +335,122 @@ pub fn translate_kernel_address(addr: VirtAddr) -> Option<PhysAddr> {
     with_paging(|mapper_slot, _| mapper_slot.as_ref()?.translate_addr(addr))
 }
 
+/// Map a page-aligned physical MMIO range into a reserved supervisor-only
+/// kernel virtual range. Page-table locks and disabled interrupts cover only
+/// the page-table edits; callers perform device I/O after this returns.
+pub fn map_mmio_range(
+    physical_start: u64,
+    byte_len: u64,
+    virtual_start: u64,
+) -> Result<VirtAddr, &'static str> {
+    const PAGE_BYTES: u64 = 4096;
+    if byte_len == 0
+        || physical_start % PAGE_BYTES != 0
+        || virtual_start % PAGE_BYTES != 0
+        || byte_len % PAGE_BYTES != 0
+    {
+        return Err("MMIO mapping must contain aligned whole pages");
+    }
+    let physical_end = physical_start
+        .checked_add(byte_len - 1)
+        .ok_or("MMIO physical range overflow")?;
+    let virtual_end = virtual_start
+        .checked_add(byte_len - 1)
+        .ok_or("MMIO virtual range overflow")?;
+    let physical_start = PhysAddr::try_new(physical_start).map_err(|_| "invalid MMIO address")?;
+    let physical_end = PhysAddr::try_new(physical_end).map_err(|_| "invalid MMIO end")?;
+    let virtual_start =
+        VirtAddr::try_new(virtual_start).map_err(|_| "invalid MMIO virtual address")?;
+    let virtual_end = VirtAddr::try_new(virtual_end).map_err(|_| "invalid MMIO virtual end")?;
+
+    with_paging(|mapper_slot, allocator_slot| {
+        let mapper = mapper_slot.as_mut().ok_or("kernel mapper not active")?;
+        let allocator = allocator_slot
+            .as_mut()
+            .ok_or("frame allocator not active")?;
+        let start_page = Page::<Size4KiB>::containing_address(virtual_start);
+        let end_page = Page::<Size4KiB>::containing_address(virtual_end);
+        for page in Page::range_inclusive(start_page, end_page) {
+            if mapper.translate_addr(page.start_address()).is_some() {
+                return Err("MMIO virtual page is already mapped");
+            }
+        }
+        let start_frame = PhysFrame::<Size4KiB>::containing_address(physical_start);
+        let end_frame = PhysFrame::<Size4KiB>::containing_address(physical_end);
+        let mut mapped = 0usize;
+        for (page, frame) in Page::range_inclusive(start_page, end_page)
+            .zip(PhysFrame::range_inclusive(start_frame, end_frame))
+        {
+            let flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::NO_CACHE
+                | PageTableFlags::WRITE_THROUGH
+                | PageTableFlags::NO_EXECUTE;
+            let result = unsafe { mapper.map_to(page, frame, flags, allocator) };
+            match result {
+                Ok(flush) => {
+                    flush.flush();
+                    mapped += 1;
+                }
+                Err(_) => {
+                    for rollback in Page::range_inclusive(start_page, end_page).take(mapped) {
+                        if let Ok((_, flush)) = mapper.unmap(rollback) {
+                            flush.flush();
+                        }
+                    }
+                    unsafe {
+                        mapper.clean_up_addr_range(
+                            Page::range_inclusive(start_page, end_page),
+                            allocator,
+                        );
+                    }
+                    return Err("failed to map MMIO page; mapped prefix rolled back");
+                }
+            }
+        }
+        Ok(virtual_start)
+    })
+}
+
+/// Remove a kernel MMIO mapping and reclaim now-empty page-table frames. This
+/// is used only during single-threaded boot rollback, before process page-table
+/// roots copy any kernel mapping entries.
+pub fn unmap_mmio_range(virtual_start: u64, byte_len: u64) -> Result<(), &'static str> {
+    const PAGE_BYTES: u64 = 4096;
+    if byte_len == 0 || virtual_start % PAGE_BYTES != 0 || byte_len % PAGE_BYTES != 0 {
+        return Err("MMIO unmap must contain aligned whole pages");
+    }
+    let virtual_end = virtual_start
+        .checked_add(byte_len - 1)
+        .ok_or("MMIO unmap range overflow")?;
+    let start = VirtAddr::try_new(virtual_start).map_err(|_| "invalid MMIO unmap address")?;
+    let end = VirtAddr::try_new(virtual_end).map_err(|_| "invalid MMIO unmap end")?;
+    with_paging(|mapper_slot, allocator_slot| {
+        let mapper = mapper_slot.as_mut().ok_or("kernel mapper not active")?;
+        let allocator = allocator_slot
+            .as_mut()
+            .ok_or("frame allocator not active")?;
+        let start_page = Page::<Size4KiB>::containing_address(start);
+        let end_page = Page::<Size4KiB>::containing_address(end);
+        for page in Page::range_inclusive(start_page, end_page) {
+            if mapper.translate_addr(page.start_address()).is_none() {
+                return Err("MMIO unmap range contains an unmapped page");
+            }
+        }
+        for page in Page::range_inclusive(start_page, end_page) {
+            mapper
+                .unmap(page)
+                .map_err(|_| "failed to remove MMIO mapping")?
+                .1
+                .flush();
+        }
+        unsafe {
+            mapper.clean_up_addr_range(Page::range_inclusive(start_page, end_page), allocator);
+        }
+        Ok(())
+    })
+}
+
 /// The kernel's own PML4 frame -- the address space every kernel-only task
 /// (shell, idle, heartbeat) runs under, and what the scheduler loads into
 /// CR3 whenever the current task isn't a user process (see `task.rs`).

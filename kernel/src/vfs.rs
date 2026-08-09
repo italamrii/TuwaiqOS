@@ -153,20 +153,30 @@ fn with_runtime_interrupts<R>(f: impl FnOnce() -> R) -> R {
 
 pub fn init() {
     let mut table = MountTable::new().expect("VFS mount table allocation failed");
+    let mut root_online = false;
     match fs::init() {
-        Ok(()) => table
-            .register("/", fs::label(), false, Backend::Tuwaiq)
-            .expect("VFS root mount registration failed"),
-        Err(reason) => crate::serial_println!(
-            "vfs: TuwaiqFS unavailable; entering read-only recovery mode: {}",
-            reason
-        ),
+        Ok(()) => {
+            table
+                .register("/", fs::label(), false, Backend::Tuwaiq)
+                .expect("VFS root mount registration failed");
+            root_online = true;
+        }
+        Err(reason) => {
+            crate::serial_println!(
+                "vfs: TuwaiqFS unavailable; entering read-only recovery mode: {}",
+                reason
+            );
+            crate::boot_diag::degrade("tuwaiqfs-root", reason, "read-only-recovery");
+        }
     }
     match fat32::Fat32Volume::mount() {
         Ok(volume) => table
             .register("/boot", "FAT32", true, Backend::Fat32(volume))
             .expect("VFS FAT32 mount registration failed"),
-        Err(reason) => crate::serial_println!("vfs: FAT32 /boot mount failed: {}", reason),
+        Err(reason) => {
+            crate::serial_println!("vfs: FAT32 /boot mount failed: {}", reason);
+            crate::boot_diag::degrade("fat32-boot", reason, "continue-without-/boot");
+        }
     }
     let table = Arc::new(table);
     let shell_root = String::from("/");
@@ -176,9 +186,13 @@ pub fn init() {
     });
     if kind("/", "/") == Ok(NodeKind::Directory) {
         crate::serial_println!("vfs: mounted {} at /", fs::label());
+    } else if !root_online {
+        crate::serial_println!("vfs: root OFFLINE; recovery console remains available");
     }
     if kind("/", "/boot") == Ok(NodeKind::Directory) {
         crate::serial_println!("vfs: mounted FAT32 read-only at /boot");
+    } else {
+        crate::serial_println!("vfs: /boot UNAVAILABLE; boot continues");
     }
 }
 

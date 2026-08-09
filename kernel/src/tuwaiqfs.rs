@@ -41,7 +41,7 @@ use alloc::vec::Vec;
 
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-use crate::ata;
+use crate::storage;
 
 pub const SUPERBLOCK_LBA: u32 = 8192;
 pub const LEGACY_METADATA_LBA: u32 = 8465;
@@ -80,13 +80,13 @@ pub enum FsNode {
 /// Load TuwaiqFS from disk, formatting if needed.
 pub fn mount() -> Result<FsNode, &'static str> {
     let mut superblock = [0u8; 512];
-    ata::read_sector(SUPERBLOCK_LBA, &mut superblock)?;
+    storage::read_sector(SUPERBLOCK_LBA, &mut superblock)?;
 
     if superblock[..8] != MAGIC {
         let mut slot_a = [0u8; 512];
         let mut slot_b = [0u8; 512];
-        ata::read_sector(SLOT_A_LBA, &mut slot_a)?;
-        ata::read_sector(SLOT_B_LBA, &mut slot_b)?;
+        storage::read_sector(SLOT_A_LBA, &mut slot_a)?;
+        storage::read_sector(SLOT_B_LBA, &mut slot_b)?;
         if superblock.iter().any(|byte| *byte != 0)
             || slot_a.iter().any(|byte| *byte != 0)
             || slot_b.iter().any(|byte| *byte != 0)
@@ -136,7 +136,8 @@ fn read_metadata_len(superblock: &[u8; 512]) -> usize {
 
 fn format_region() -> Result<(), &'static str> {
     let superblock = build_superblock();
-    ata::write_sector(SUPERBLOCK_LBA, &superblock)?;
+    storage::write_sector(SUPERBLOCK_LBA, &superblock)?;
+    storage::flush()?;
     FORMAT_VERSION.store(VERSION, Ordering::Release);
     ACTIVE_SLOT.store(1, Ordering::Release);
     GENERATION.store(0, Ordering::Release);
@@ -165,7 +166,8 @@ pub fn sync_tree(root: &FsNode) -> Result<(), &'static str> {
     let target = 1 - ACTIVE_SLOT.load(Ordering::Acquire).min(1);
     write_checkpoint(target, generation, &blob, None)?;
     if FORMAT_VERSION.load(Ordering::Acquire) != VERSION {
-        ata::write_sector(SUPERBLOCK_LBA, &build_superblock())?;
+        storage::write_sector(SUPERBLOCK_LBA, &build_superblock())?;
+        storage::flush()?;
         FORMAT_VERSION.store(VERSION, Ordering::Release);
     }
     ACTIVE_SLOT.store(target, Ordering::Release);
@@ -238,7 +240,7 @@ fn load_latest_checkpoint() -> Result<FsNode, &'static str> {
 fn load_checkpoint(slot: u32) -> Result<Option<(u64, FsNode)>, &'static str> {
     let lba = slot_lba(slot)?;
     let mut header = [0u8; 512];
-    ata::read_sector(lba, &mut header)?;
+    storage::read_sector(lba, &mut header)?;
     if header[..8] != SLOT_MAGIC || le_u32(&header[24..28]) != SLOT_COMMITTED {
         return Ok(None);
     }
@@ -271,7 +273,7 @@ fn write_checkpoint(
 ) -> Result<(), &'static str> {
     let lba = slot_lba(slot)?;
     let mut header = checkpoint_header(generation, blob, false)?;
-    ata::write_sector(lba, &header)?;
+    storage::write_sector(lba, &header)?;
     let sectors = blob.len().div_ceil(512);
     let mut sector = [0u8; 512];
     for index in 0..sectors {
@@ -279,13 +281,16 @@ fn write_checkpoint(
         let offset = index * 512;
         let count = (blob.len() - offset).min(512);
         sector[..count].copy_from_slice(&blob[offset..offset + count]);
-        ata::write_sector(lba + 1 + index as u32, &sector)?;
+        storage::write_sector(lba + 1 + index as u32, &sector)?;
         if interrupt_after == Some(index + 1) {
+            storage::flush()?;
             return Err("injected interrupted checkpoint");
         }
     }
+    storage::flush()?;
     header = checkpoint_header(generation, blob, true)?;
-    ata::write_sector(lba, &header)
+    storage::write_sector(lba, &header)?;
+    storage::flush()
 }
 
 fn checkpoint_header(
@@ -537,7 +542,7 @@ fn read_metadata_at(lba: u32, len: usize) -> Result<Vec<u8>, &'static str> {
 
     let mut sector = lba;
     while blob.len() < len {
-        ata::read_sector(sector, &mut sector_buf)?;
+        storage::read_sector(sector, &mut sector_buf)?;
         let remaining = len - blob.len();
         let take = remaining.min(512);
         blob.extend_from_slice(&sector_buf[..take]);

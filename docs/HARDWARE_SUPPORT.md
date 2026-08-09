@@ -11,9 +11,10 @@ forks. A successful boot is not enough to mark a capability supported.
 | x86_64 BIOS boot | Qualified in QEMU `pc` | Target, not yet qualified on physical hardware | Target, not yet qualified on physical hardware |
 | Memory | 128 MiB QEMU reference | 512 MiB target | 2 GiB+ target |
 | Display/input | QEMU VGA framebuffer, PS/2 keyboard/mouse | Physical GPU/input unqualified | Physical GPU/input unqualified |
-| Persistent root | ATA PIO virtual disk | Selected physical ATA configuration unqualified | Modern physical storage unqualified |
+| Persistent root | ATA PIO and QEMU NVMe 512-byte namespace | Selected physical ATA/NVMe unqualified | Physical NVMe unqualified |
 | PCI discovery | QEMU `pc` inventory qualified | Conventional PCI config mechanism 1 only | PCIe/ECAM unqualified |
 | VirtIO block | Legacy/transitional PCI, polling, read foundation qualified | Same virtual device only | Same virtual device only |
+| NVMe | QEMU PCI controller, polling, one 512-byte namespace | ESXi artifact pending external validation | Physical controller unqualified |
 | Networking | Legacy/transitional `virtio-net-pci`, IPv4/DHCP/DNS/bounded UDP qualified | Physical NIC unqualified | Physical NIC unqualified |
 | IRQ/DMA isolation | Fixed DMA, polling VirtIO; reset and scrub | MSI/MSI-X and IOMMU unqualified | MSI/MSI-X and IOMMU unqualified |
 
@@ -29,6 +30,8 @@ From a clean candidate commit with QEMU installed:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\phase7-smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\phase7b-nvme-smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-esxi.ps1 -VirtualHardwareVersion 13
 ```
 
 The harness boots the TuwaiqOS image as the first IDE disk and attaches a
@@ -43,6 +46,27 @@ DNS response addresses may change because the QEMU user-network resolver
 forwards to the host resolver; acceptance checks a valid A response rather
 than a hard-coded address. DHCP addresses and the VirtIO block marker are
 deterministic within the harness.
+
+The Phase 7B harness boots the normal image as an NVMe namespace, performs
+TuwaiqFS write/read/flush and a genuine reboot, resets and re-enables the
+controller, rejects an out-of-range LBA, and checks claim/frame/heap baselines.
+Separate boots reject a 4 KiB namespace with ownership cleanup, preserve ATA
+plus VirtIO block behavior when NVMe is absent, and reach the shell over COM1
+with the PS/2 controller absent. A deterministic geometry self-test proves
+malformed framebuffer metadata is rejected before activation. The BIOS
+bootloader used by this QEMU path still supplies a framebuffer, so an actual
+framebuffer-absent kernel entry is not claimed by this test.
+
+`scripts/build-esxi.ps1` queries the installed `qemu-img` VMDK options, uses an
+explicit virtual-hardware version, preserves the source IMG, emits the primary
+Workstation-attachable `TuwaiqOS-VMware-BIOS.vmdk` (`monolithicSparse`),
+optionally emits a distinct `streamOptimized` transport VMDK, validates both
+with `qemu-img info` and `check`, and writes companion VMX/checksum/README
+files under `target/esxi/`. The BIOS disk image packages a
+`llvm-objcopy --strip-unneeded` kernel so stage-2 does not load multi-megabyte
+debug sections over INT 13h. This is artifact validation, not a VMware boot
+claim. Workstation/ESXi status stays pending until the external evidence
+listed in `docs/ESXI.md` is returned.
 
 ## Physical qualification required to close Phase 7
 

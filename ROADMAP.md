@@ -233,6 +233,29 @@ network configuration persist state.
 - [x] Begin the Tuwaiq Hardware Compatibility Program (THCP) with explicit
       profile definitions and a reproducible virtual reference procedure
 
+### Phase 7B — ESXi, NVMe, and boot diagnostics (remediation milestone)
+
+- [x] Generate matching BIOS/NVMe VMDK and VMX artifacts with an explicit
+      virtual-hardware version, checksums, and `qemu-img` validation
+- [x] Package a strip-unneeded kernel into the BIOS image and emit a primary
+      Workstation-attachable `monolithicSparse` VMDK (`TuwaiqOS-VMware-BIOS.vmdk`)
+- [x] Add a separate HAL-owned polling NVMe path for one bounded 512-byte
+      namespace while preserving ATA and VirtIO block behavior
+- [x] Make TuwaiqFS/FAT32 boot storage select NVMe or ATA without changing the
+      on-disk filesystem format
+- [x] Add allocation-free COM1 boot stages, checked framebuffer activation,
+      VGA/serial fallback, and non-fatal input diagnostics
+- [x] Qualify NVMe read/write/flush/reset, reboot persistence, malformed
+      namespace cleanup, and NVMe-absent fallback in QEMU
+- [ ] Validate the generated artifact on VMware Workstation/ESXi using an
+      external tester's Legacy BIOS + NVMe settings, last visible boot message,
+      and complete COM1 log when available
+
+QEMU evidence validates the driver and artifact structure, not VMware itself.
+Phase 7B remains open until the external evidence above is reviewed. Physical
+NIC qualification also remains independently open because no suitable test
+device is currently available.
+
 Secure transport is preserved as required platform work but deliberately moves
 to Phase 8's userspace runtime/SDK: TLS certificate, key, and protocol policy is
 not a hardware primitive and would violate the post-Phase-7 kernel freeze if
@@ -261,10 +284,10 @@ obtain configuration through DHCP, resolve DNS, exchange traffic reliably,
 recover from device errors, and pass isolation/resource-lifecycle tests. The
 initial THCP matrix and reproducible qualification procedure exist.
 
-**Current gate status:** open. The deterministic QEMU path and initial THCP
-matrix are implemented and pass focused tests. A selected physical NIC and
-physical-machine qualification have not been executed, so the Phase 7 kernel
-freeze is not yet in effect and Phase 7 must not be marked complete.
+**Current gate status:** open. The deterministic VirtIO and NVMe QEMU paths and
+initial THCP matrix pass focused tests. ESXi validation, a selected physical
+NIC, and physical-machine qualification have not been executed, so the Phase 7
+kernel freeze is not yet in effect and Phase 7 must not be marked complete.
 
 ## Parallel Desktop Track — Phases 6–9
 

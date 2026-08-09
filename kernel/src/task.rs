@@ -773,9 +773,22 @@ fn idle_entry() {
 fn heartbeat_entry() {
     let mut count: u64 = 0;
     loop {
-        sleep_ticks(100); // ~1 second at the PIT's 100 Hz tick rate
+        // Early beats prove the scheduler is alive for acceptance harnesses.
+        // After that, slow the cadence so continuous spam cannot be mistaken
+        // for interactive readiness or obscure later failure lines on COM1.
+        let delay = if count < 3 { 100 } else { 3000 };
+        sleep_ticks(delay);
         count += 1;
-        crate::serial_println!("task heartbeat: beat #{}", count);
+        if count <= 3 {
+            crate::serial_println!("task heartbeat: beat #{}", count);
+            if count == 3 {
+                crate::serial_println!(
+                    "task heartbeat: stable (further beats every ~30s; not shell readiness)"
+                );
+            }
+        } else {
+            crate::serial_println!("task heartbeat: beat #{}", count);
+        }
     }
 }
 

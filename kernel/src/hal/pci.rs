@@ -63,6 +63,72 @@ impl PciDevice {
         // untouched because the initial VirtIO transport owns an I/O BAR.
         write_u16(self.address, 0x04, command | (1 << 0) | (1 << 2));
     }
+
+    /// Return a checked memory BAR base and size. The device's memory and I/O
+    /// decoders are disabled only for the bounded BAR-size probe, then its
+    /// exact command register and BAR contents are restored.
+    pub fn probe_memory_bar(&self, index: usize) -> Result<MemoryBar, &'static str> {
+        if index >= self.bars.len() {
+            return Err("PCI BAR index is outside the header");
+        }
+        let low = self.bars[index];
+        if low & 1 != 0 {
+            return Err("PCI BAR is an I/O BAR");
+        }
+        let bar_type = (low >> 1) & 0x3;
+        if bar_type != 0 && bar_type != 2 {
+            return Err("unsupported PCI memory BAR type");
+        }
+        let is_64 = bar_type == 2;
+        if is_64 && index + 1 >= self.bars.len() {
+            return Err("truncated 64-bit PCI BAR");
+        }
+        let high = if is_64 { self.bars[index + 1] } else { 0 };
+        let base = (u64::from(high) << 32) | u64::from(low & !0xF);
+        if base == 0 {
+            return Err("PCI memory BAR has no assigned address");
+        }
+
+        let command = read_u16(self.address, 0x04);
+        write_u16(self.address, 0x04, command & !0x3);
+        let offset = 0x10 + (index as u8 * 4);
+        write_u32(self.address, offset, u32::MAX);
+        if is_64 {
+            write_u32(self.address, offset + 4, u32::MAX);
+        }
+        let mask_low = read_u32(self.address, offset);
+        let mask_high = if is_64 {
+            read_u32(self.address, offset + 4)
+        } else {
+            0
+        };
+        write_u32(self.address, offset, low);
+        if is_64 {
+            write_u32(self.address, offset + 4, high);
+        }
+        write_u16(self.address, 0x04, command);
+
+        let mask = (u64::from(mask_high) << 32) | u64::from(mask_low & !0xF);
+        let width_mask = if is_64 { u64::MAX } else { u32::MAX as u64 };
+        let size = (!mask & width_mask).wrapping_add(1);
+        if size == 0 || !size.is_power_of_two() || base & (size - 1) != 0 {
+            return Err("PCI memory BAR has invalid size or alignment");
+        }
+        base.checked_add(size - 1)
+            .ok_or("PCI memory BAR address overflows")?;
+        Ok(MemoryBar { base, size })
+    }
+
+    pub fn enable_memory_bus_mastering(&self) {
+        let command = read_u16(self.address, 0x04);
+        write_u16(self.address, 0x04, command | (1 << 1) | (1 << 2));
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MemoryBar {
+    pub base: u64,
+    pub size: u64,
 }
 
 pub struct PciInventory {
@@ -221,5 +287,14 @@ pub fn write_u16(address: PciAddress, offset: u8, value: u16) {
     unsafe {
         address_port.write(config_address(address, aligned));
         data_port.write(updated);
+    }
+}
+
+pub fn write_u32(address: PciAddress, offset: u8, value: u32) {
+    let mut address_port = Port::<u32>::new(CONFIG_ADDRESS);
+    let mut data_port = Port::<u32>::new(CONFIG_DATA);
+    unsafe {
+        address_port.write(config_address(address, offset));
+        data_port.write(value);
     }
 }

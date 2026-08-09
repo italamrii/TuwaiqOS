@@ -41,14 +41,63 @@ pub fn is_active() -> bool {
 }
 
 /// Attach the console to the bootloader-provided framebuffer.
-pub fn init(framebuffer: &mut FrameBuffer) {
+pub fn try_init(framebuffer: &mut FrameBuffer) -> Result<(), &'static str> {
     let info = framebuffer.info();
+    let minimum_bpp = match info.pixel_format {
+        PixelFormat::Rgb | PixelFormat::Bgr => 3,
+        PixelFormat::U8 => 1,
+        PixelFormat::Unknown { .. } => return Err("unsupported framebuffer pixel format"),
+        _ => return Err("unsupported framebuffer pixel format"),
+    };
+    validate_geometry(
+        info.width,
+        info.height,
+        info.stride,
+        info.bytes_per_pixel,
+        minimum_bpp,
+        info.byte_len,
+        framebuffer.buffer().len(),
+    )?;
     unsafe {
         FB_BUFFER = Some(framebuffer.buffer_mut().as_mut_ptr());
         FB_INFO = Some(info);
         CURSOR_X = 0;
         CURSOR_Y = 0;
     }
+    Ok(())
+}
+
+fn validate_geometry(
+    width: usize,
+    height: usize,
+    stride: usize,
+    bytes_per_pixel: usize,
+    minimum_bpp: usize,
+    advertised_len: usize,
+    actual_len: usize,
+) -> Result<(), &'static str> {
+    if width == 0 || height == 0 || stride < width {
+        return Err("invalid framebuffer dimensions or stride");
+    }
+    if bytes_per_pixel < minimum_bpp || bytes_per_pixel > 8 {
+        return Err("invalid framebuffer bytes-per-pixel");
+    }
+    let required = stride
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(bytes_per_pixel))
+        .ok_or("framebuffer geometry overflow")?;
+    if required > advertised_len || actual_len < required {
+        return Err("framebuffer buffer is shorter than its geometry");
+    }
+    Ok(())
+}
+
+pub fn validation_self_test() -> bool {
+    validate_geometry(0, 720, 1280, 4, 3, 4_000_000, 4_000_000).is_err()
+        && validate_geometry(1280, 720, 1279, 4, 3, 4_000_000, 4_000_000).is_err()
+        && validate_geometry(usize::MAX, 2, usize::MAX, 8, 3, usize::MAX, usize::MAX).is_err()
+        && validate_geometry(1280, 720, 1280, 4, 3, 512, 512).is_err()
+        && validate_geometry(1280, 720, 1280, 4, 3, 3_686_400, 3_686_400).is_ok()
 }
 
 /// Fill the entire framebuffer with the background color.

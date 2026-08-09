@@ -293,6 +293,10 @@ fn init_pit(hz: u64) {
 /// introspection to check mappings before writing, VGA is treated as
 /// untrustworthy from a fault context and is not used here at all.
 fn report_fault(name: &str) {
+    serial_println!(
+        "fault context: last successful boot stage={}",
+        crate::boot_diag::last_stage()
+    );
     if framebuffer_console::is_active() {
         framebuffer_console::println("");
         framebuffer_console::println("KERNEL PANIC: ");

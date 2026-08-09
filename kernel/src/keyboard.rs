@@ -13,6 +13,51 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use lazy_static::lazy_static;
 use spin::Mutex;
+use x86_64::instructions::port::Port;
+
+/// Detect a legacy PS/2 controller with the standard controller self-test.
+/// The transaction is bounded, runs with interrupts masked so IRQ1 cannot
+/// consume the reply, and re-enables the first port after a successful test.
+pub fn probe_controller() -> bool {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut status_port = Port::<u8>::new(0x64);
+        let mut command_port = Port::<u8>::new(0x64);
+        let mut data_port = Port::<u8>::new(0x60);
+
+        for _ in 0..1_024 {
+            let status = unsafe { status_port.read() };
+            if status & 1 == 0 {
+                break;
+            }
+            let _ = unsafe { data_port.read() };
+        }
+        let mut input_ready = false;
+        for _ in 0..1_024 {
+            let status = unsafe { status_port.read() };
+            if status != 0xFF && status & 2 == 0 {
+                input_ready = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        if !input_ready {
+            return false;
+        }
+        unsafe { command_port.write(0xAA) };
+        for _ in 0..4_096 {
+            let status = unsafe { status_port.read() };
+            if status & 1 != 0 {
+                let passed = unsafe { data_port.read() } == 0x55;
+                if passed {
+                    unsafe { command_port.write(0xAE) };
+                }
+                return passed;
+            }
+            core::hint::spin_loop();
+        }
+        false
+    })
+}
 
 /// A decoded keyboard event for the shell.
 #[derive(Clone, Copy)]
