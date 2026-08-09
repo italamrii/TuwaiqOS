@@ -327,6 +327,14 @@ pub fn physical_memory_offset() -> Option<VirtAddr> {
     }
 }
 
+/// Translate an address in the kernel's active address space for a DMA
+/// driver.  The mapper lock and interrupt-disabled interval cover only the
+/// page-table walk; callers must perform no allocation or device I/O inside
+/// this function.
+pub fn translate_kernel_address(addr: VirtAddr) -> Option<PhysAddr> {
+    with_paging(|mapper_slot, _| mapper_slot.as_ref()?.translate_addr(addr))
+}
+
 /// The kernel's own PML4 frame -- the address space every kernel-only task
 /// (shell, idle, heartbeat) runs under, and what the scheduler loads into
 /// CR3 whenever the current task isn't a user process (see `task.rs`).

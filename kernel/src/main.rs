@@ -14,12 +14,14 @@ mod allocator;
 mod apps;
 mod ata;
 mod display;
+mod drivers;
 mod elf;
 mod fat32;
 mod font8x8;
 mod framebuffer_console;
 mod fs;
 mod gdt;
+mod hal;
 mod input;
 mod interrupts;
 mod keyboard;
@@ -93,6 +95,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     ata::init();
     vfs::init();
     task::init();
+    hal::init();
+    if let Some(device) = hal::pci::discover().find(
+        drivers::virtio::PCI_VENDOR,
+        drivers::virtio::LEGACY_BLOCK_DEVICE,
+    ) {
+        match drivers::virtio::block::probe_and_read(device) {
+            Ok(probe) => serial_println!(
+                "virtio-blk: PASS capacity={} sectors sector0-checksum={} teardown=reset+scrub",
+                probe.capacity_sectors,
+                probe.first_sector_checksum
+            ),
+            Err(reason) => serial_println!("virtio-blk: FAILED: {}", reason),
+        }
+    } else {
+        serial_println!("virtio-blk: no supported legacy PCI device; skipped cleanly");
+    }
     net::init();
 
     if let Some(framebuffer) = boot_info.framebuffer.as_mut() {

@@ -26,6 +26,10 @@ are plans, not claims about functionality that exists today.
 - Security, testing, documentation, and measurable resource ownership are
   continuous requirements, even where a later phase contains a formal
   qualification gate.
+- After the Phase 7 exit gate passes, feature development in Ring 0 is frozen.
+  Later kernel changes are limited to security fixes, correctness fixes, and
+  maintenance required for already-defined driver interfaces. Application,
+  SDK, compatibility, package, service, and AI policy belongs in userspace.
 
 ## Dependency path
 
@@ -215,17 +219,27 @@ usable networking while keeping deterministic virtual-hardware development.
 **Depends on:** stable resource/file interfaces from Phase 6 where drivers or
 network configuration persist state.
 
-- [ ] Define a HAL and modular driver framework with explicit device, IRQ,
+- [x] Define a HAL and modular driver framework with explicit device, IRQ,
       DMA, memory, and teardown ownership
-- [ ] Add PCI enumeration and device discovery foundations
-- [ ] Implement a real NIC driver, preferably `virtio-net` first for
-      deterministic development, followed by selected real hardware
-- [ ] Build usable link, IP, DHCP, DNS, and socket-facing networking
-- [ ] Add secure transport primitives needed by future services; an AI client
-      is not part of Ring 0 or a prerequisite for native networking
-- [ ] Add appropriate VirtualBox/VMware optimized drivers without coupling the
-      OS architecture to one hypervisor
-- [ ] Begin the Tuwaiq Hardware Compatibility Program (THCP)
+- [x] Add bounded PCI configuration-space enumeration and immutable device
+      discovery
+- [x] Add legacy PCI VirtIO block and network transports for deterministic
+      QEMU development, with fixed DMA, polling ownership, reset, and scrub
+- [ ] Qualify a selected physical NIC through the same ownership interfaces;
+      `virtio-net` is implemented, but successful emulation is not evidence of
+      physical-hardware support
+- [x] Build usable Ethernet link, IPv4, DHCP, DNS, and an owner-bound bounded
+      UDP syscall surface
+- [x] Begin the Tuwaiq Hardware Compatibility Program (THCP) with explicit
+      profile definitions and a reproducible virtual reference procedure
+
+Secure transport is preserved as required platform work but deliberately moves
+to Phase 8's userspace runtime/SDK: TLS certificate, key, and protocol policy is
+not a hardware primitive and would violate the post-Phase-7 kernel freeze if
+implemented as a Ring 0 service. Hypervisor-specific VirtualBox/VMware drivers
+are likewise not a Phase 7 exit requirement where their supported VirtIO
+devices satisfy the same interface; any future device-specific driver is
+ordinary THCP driver maintenance, not a new kernel subsystem.
 
 ### Tuwaiq Hardware Compatibility Program (THCP)
 
@@ -239,11 +253,18 @@ network configuration persist state.
   devices without redesigning the kernel or invalidating existing profiles.
 - Qualification publishes explicit supported/unsupported capabilities rather
   than inferring support from a successful boot alone.
+- The live support matrix and exact QEMU qualification command are maintained
+  in `docs/HARDWARE_SUPPORT.md`.
 
 **Exit gate:** deterministic virtual networking and selected real hardware can
 obtain configuration through DHCP, resolve DNS, exchange traffic reliably,
 recover from device errors, and pass isolation/resource-lifecycle tests. The
 initial THCP matrix and reproducible qualification procedure exist.
+
+**Current gate status:** open. The deterministic QEMU path and initial THCP
+matrix are implemented and pass focused tests. A selected physical NIC and
+physical-machine qualification have not been executed, so the Phase 7 kernel
+freeze is not yet in effect and Phase 7 must not be marked complete.
 
 ## Parallel Desktop Track — Phases 6–9
 
@@ -280,6 +301,8 @@ practical to develop.
 network foundations needed by platform services from Phase 7.
 
 - [ ] Stabilize and version the native Tuwaiq ABI with compatibility policy
+- [ ] Provide userspace secure-transport primitives and certificate/key policy
+      over the Phase 7 bounded socket ABI; TLS does not execute in Ring 0
 - [ ] Add IPC with explicit endpoint ownership, bounds, and teardown behavior
 - [ ] Add permissions/capabilities and least-privilege process services
 - [ ] Move Tuwaiq AI Preview service/UI communication onto bounded IPC and
@@ -393,8 +416,8 @@ storage, and—only for optional remote providers—usable networking.
       like every other application
 - [ ] Allow optional cloud AI only by policy. Sovereign, offline, and
       air-gapped operation must remain possible
-- [ ] Replace the current AI Bridge HTTP stub with policy-controlled userspace
-      providers/connectors after secure transport and permissions exist
+- [ ] Add policy-controlled userspace providers/connectors after userspace
+      secure transport and permissions exist; no HTTP client belongs in Ring 0
 
 No model or Agent Runtime component executes in Ring 0.
 The Phase 6 preview is an architectural foothold, not completion of this

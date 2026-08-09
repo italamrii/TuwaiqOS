@@ -91,7 +91,7 @@ pub fn snapshot(boot_info: &BootInfo) -> Result<Vec<String>, &'static str> {
     if net::is_initialized() {
         for status in net::status_lines() {
             let mut line = String::from("  ");
-            line.push_str(status);
+            line.push_str(&status);
             lines.push(line);
         }
     } else {

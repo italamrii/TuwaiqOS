@@ -7,7 +7,10 @@ hardware-isolated Ring 3 ELF processes. Core services remain in the kernel;
 Phase 4 added per-process address spaces, Phase 5 runs the graphical desktop
 as an unprivileged userspace process. Phase 6 adds a general VFS mount table,
 recoverable persistent application data, a read-only FAT32 resource backend,
-and filesystem-backed application launch as the normal path.
+and filesystem-backed application launch as the normal path. The current
+Phase 7 milestone adds HAL/PCI discovery, bounded legacy VirtIO block/network
+drivers, IPv4/DHCP/DNS, and owner-bound UDP without claiming physical-hardware
+qualification or Phase 7 completion.
 
 ```mermaid
 flowchart LR
@@ -46,9 +49,11 @@ flowchart LR
         APPS[notes / editor / monitor]
     end
     subgraph Network
-        NET[net module]
-        LB[Loopback driver]
-        HTTP[HTTP stub]
+        PCI[PCI inventory]
+        VNET[VirtIO network]
+        VBLK[VirtIO block]
+        IPV4[IPv4 + DHCP + DNS]
+        UDP[Bounded UDP handles]
     end
     B --> K
     K --> GDT --> IDT --> PIC --> PIT
@@ -57,7 +62,7 @@ flowchart LR
     K --> VGA
     K --> VFS
     K --> TASK
-    K --> NET
+    K --> PCI
     KB --> IDT
     SH --> KB
     SH --> VFS
@@ -65,12 +70,12 @@ flowchart LR
     DESK --> AIP
     SH --> APPS
     SH --> TASK
-    SH --> NET
+    SH --> IPV4
     VFS --> FS --> TQFS --> ATA
     VFS --> FAT --> ATA
     SH --> APPS
-    NET --> LB
-    NET --> HTTP
+    PCI --> VNET --> IPV4 --> UDP
+    PCI --> VBLK
 ```
 
 ## Boot sequence
@@ -79,7 +84,8 @@ flowchart LR
 2. `kernel_main` enables `EFER.NXE` (`paging::enable_nx`, before any page
    table exists -- see Phase 4 below), initializes the heap, then
    interrupts (GDT/TSS, IDT, PIC remap + mask, PIT timer, `sti`), then ATA,
-   VFS/TuwaiqFS, tasks, and network.
+   VFS/TuwaiqFS, tasks, immutable PCI discovery, bounded VirtIO block
+   qualification, and networking.
 3. Framebuffer or VGA console starts; shell prints boot banner and prompt.
 
 Interrupts must come immediately after the heap: the keyboard event queue
@@ -108,13 +114,15 @@ interrupts live rather than a purely polled CPU.
 | `tuwaiqfs.rs` | TuwaiqFS v3 dual-checkpoint serialization and v2 migration |
 | `fat32.rs` | Independent read-only MBR/BPB/FAT32 backend |
 | `ata.rs` | Primary master PIO sector I/O |
+| `hal/` | PCI discovery and explicit driver IRQ/DMA/register/teardown ownership |
+| `drivers/virtio/` | Legacy PCI VirtIO transport, split queues, block probe, and Ethernet driver |
 | `task.rs` | Preemptive scheduler: real TCBs, per-task stacks, context switch, user-process lifecycle, CR3/RSP0 switching |
 | `usermode.rs` | Low-level `iretq` primitive that drops CPL to 3 |
 | `elf.rs` | Minimal ELF64 loader: validates and maps `PT_LOAD` segments into a process's address space |
 | `syscall.rs` | Real syscall ABI: entry stub, dispatch, user-pointer validation |
 | `loader.rs` / `programs/` | Built-in program registry |
 | `apps/` | notes, editor, monitor |
-| `net/` | Driver trait, loopback, HTTP stub |
+| `net/` | Loopback plus bounded IPv4/DHCP/DNS/UDP state over VirtIO Ethernet |
 | `ai_bridge.rs` | Offline AI stub for future gateway |
 | `reboot.rs` | Sync FS + keyboard controller reset |
 
@@ -455,6 +463,16 @@ generic failure -- no `errno`-style detail channel in this minimal ABI.
 | 13 | READ | `handle: u32, out_ptr: *mut u8, out_len: usize` | bytes read, or `-1` |
 | 14 | CLOSE | `handle: u32` | `0`, or `-1` |
 | 15 | SPAWN | `path_ptr: *const u8, path_len: usize` | child pid, or `-1` |
+| 16 | PUT_FILE | `path_ptr, path_len, spec_ptr` | `0`, or `-1` |
+| 17 | REMOVE | `path_ptr, path_len` | `0`, or `-1` |
+| 18 | MKDIR | `path_ptr, path_len` | `0`, or `-1` |
+| 19 | READDIR | `path_ptr, path_len, spec_ptr` | bytes listed, or `-1` |
+| 20 | STAT | `path_ptr, path_len, out_ptr` | `0`, or `-1` |
+| 21 | SEEK | `handle, absolute_offset` | new offset, or `-1` |
+| 22 | UDP_OPEN | `local_port` | owner-bound handle, or `-1` |
+| 23 | UDP_SEND | `handle, send_spec_ptr` | payload bytes, or `-1` |
+| 24 | UDP_RECV | `handle, out_ptr, out_len` | record bytes, `0`, or `-1` |
+| 25 | UDP_CLOSE | `handle` | `0`, or `-1` |
 
 Any other number: `-1`, logged, the process keeps running (`syscall.rs`
 `dispatch`'s `_` arm) -- unknown syscalls fail safely rather than crashing
@@ -551,7 +569,8 @@ hardware-verified evidence, not a heuristic.
   filesystem-backed executable loading. Phase 6 now supplies the initial
   filesystem path; dynamic linking and relocation remain future work.
 - At Phase 5 completion the syscall surface contained 10 calls and no file
-  API. Phase 6 extends it to 22 calls; IPC remains future.
+  API. Phase 6 extended it to 22 calls; Phase 7 adds four bounded UDP calls.
+  IPC remains future.
 
 ### Verification performed
 
@@ -1312,7 +1331,43 @@ and no lock is needed to make that true.
 
 ## Networking
 
-Loopback driver echoes packets in RAM. `ping localhost` validates the stack. HTTP client returns 503 stubs for future AI Bridge integration.
+Phase 7 separates discovery, transport, protocol, and process ownership:
+
+- `hal::pci` scans PCI configuration mechanism 1 once at boot into an
+  allocation-free, immutable 128-function inventory. Drivers claim a PCI
+  function in a bounded ownership registry; the registry lock is held only to
+  add/remove a descriptor and never across port I/O or DMA.
+- The initial transport supports QEMU's legacy/transitional PCI VirtIO block
+  (`1af4:1001`) and network (`1af4:1000`) functions. Split rings and packet
+  buffers are fixed, page-aligned kernel storage whose physical mappings are
+  proven before queue publication. The drivers suppress device interrupts and
+  declare `Polling` IRQ ownership; completion loops and queue depths are
+  bounded. Teardown resets the device before scrubbing DMA and releasing the
+  registry claim.
+- The block foundation performs a real 512-byte sector DMA read from a separate
+  VirtIO disk during focused qualification, then resets and scrubs. TuwaiqFS
+  remains on its existing ATA path; Phase 7 does not silently replace storage.
+- `net` runs smoltcp's Ethernet/ARP/IPv4/UDP/DHCP/DNS state over VirtIO. The
+  stack is protected by a non-spinning atomic lease. No network IRQ path exists;
+  a competing caller gets `network busy`, and scheduler sleeps occur only after
+  releasing the lease. DHCP supplies the address, route, and DNS server; DNS is
+  not hard-coded.
+- Ring 3 receives eight preallocated UDP slots. Handles bind to pid plus a
+  generation, only local ports 1024-49151 are assignable (system and ephemeral
+  ranges stay reserved), payloads are capped at 1200 bytes,
+  and receive uses a fixed 1208-byte record. Send descriptors and complete
+  payloads are copied before enqueue. Receive destinations are fully validated
+  before poll/dequeue, including on an empty socket. Exit, kill, close, and
+  terminal driver shutdown reclaim ownership.
+- `ping localhost` remains an in-memory diagnostic. ICMP, TCP, IPv6, TLS,
+  asynchronous wait/wake, VirtIO 1.0 MMIO/modern PCI, MSI/MSI-X, IOMMU isolation,
+  and physical NIC drivers are not implemented. Secure transport belongs in
+  the Phase 8 userspace platform over this bounded ABI, not in Ring 0.
+
+The kernel becomes feature-frozen only after the Phase 7 exit gate, including
+selected physical-hardware qualification, passes. Thereafter new application,
+service, compatibility, package, and AI behavior remains above the kernel;
+Ring 0 changes are security/correctness fixes and required driver maintenance.
 
 ## Build pipeline
 
@@ -1322,7 +1377,7 @@ Loopback driver echoes packets in RAM. `ping localhost` validates the stack. HTT
    directory (its `.cargo/config.toml` supplies the static-relocation/
    large-code-model/no-PIE flags a fixed high address like
    `0x_7000_0000_0000` requires -- running from the repo root would
-   silently miss that config). The current tree builds 25 ELF programs:
+   silently miss that config). The current tree builds 26 ELF programs:
    functional, hostile pointer/fault, VM rollback/permission, desktop, and
    concurrency coverage, including `desktop` (Phase 5's Tuwaiq Desktop --
    a multi-file binary under `src/bin/desktop/`, sharing this same crate

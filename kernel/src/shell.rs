@@ -517,6 +517,10 @@ fn embedded_program(name: &str) -> Option<&'static [u8]> {
             env!("CARGO_MANIFEST_DIR"),
             "/../target/x86_64-unknown-none/release/bad_input"
         ))),
+        "bad_net" => Some(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/x86_64-unknown-none/release/bad_net"
+        ))),
         "mmap_ro_fault" => Some(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../target/x86_64-unknown-none/release/mmap_ro_fault"
@@ -579,6 +583,7 @@ fn embedded_program_names() -> &'static [&'static str] {
         "bad_munmap",
         "bad_display",
         "bad_input",
+        "bad_net",
         "mmap_ro_fault",
         "mmap_nx_fault",
         "post_unmap_fault",
@@ -1139,7 +1144,7 @@ fn handle_runelf(mode: ConsoleMode, args: &str) {
         println(
             mode,
             "Usage: runelf <hello|bad_syscall|bad_pointer|bad_privileged|bad_kernel|bad_unmapped|\
-             bad_ud2|bad_divzero|bad_mmap|bad_munmap|bad_display|bad_input|mmap_ro_fault|\
+             bad_ud2|bad_divzero|bad_mmap|bad_munmap|bad_display|bad_input|bad_net|mmap_ro_fault|\
              mmap_nx_fault|post_unmap_fault|mmap_exhaustion|mmap_partial_failure|desktop|desktop_peer>",
         );
         return;
@@ -2575,7 +2580,51 @@ fn handle_net_command(mode: ConsoleMode, args: &str) {
     let sub = args.trim();
     if sub.eq_ignore_ascii_case("status") || sub.is_empty() {
         for line in net::status_lines() {
-            println(mode, line);
+            println(mode, &line);
+        }
+        return;
+    }
+    if sub.eq_ignore_ascii_case("dhcp") {
+        match net::configure_dhcp() {
+            Ok(status) => {
+                print(mode, "DHCP: configured ");
+                if let Some(address) = status.address {
+                    let line = alloc::format!("{}", address);
+                    println(mode, &line);
+                } else {
+                    println(mode, "without an IPv4 address");
+                }
+            }
+            Err(reason) => {
+                print(mode, "DHCP error: ");
+                println(mode, reason);
+            }
+        }
+        return;
+    }
+    if let Some(name) = sub.strip_prefix("dns ") {
+        match net::resolve_ipv4(name.trim()) {
+            Ok(address) => {
+                let line = alloc::format!("DNS: {} -> {}", name.trim(), address);
+                println(mode, &line);
+            }
+            Err(reason) => {
+                print(mode, "DNS error: ");
+                println(mode, reason);
+            }
+        }
+        return;
+    }
+    if sub.eq_ignore_ascii_case("shutdown-test") {
+        match net::shutdown_hardware() {
+            Ok(()) => println(
+                mode,
+                "net: PASS failure-cleanup device-reset DMA-scrub ownership-released",
+            ),
+            Err(reason) => {
+                print(mode, "Network shutdown error: ");
+                println(mode, reason);
+            }
         }
         return;
     }
@@ -2665,7 +2714,10 @@ fn print_help(mode: ConsoleMode) {
         mode,
         "  ls [path] | pwd | cd <path> | mounts | touch | mkdir | cat | write",
     );
-    println(mode, "  ps | taskinfo | kill | yield | net status | ping");
+    println(
+        mode,
+        "  ps | taskinfo | kill | yield | net status | net dhcp | net dns <name> | ping",
+    );
     println(mode, "  run <program> | notes | editor");
     println(
         mode,
@@ -2673,7 +2725,7 @@ fn print_help(mode: ConsoleMode) {
     );
     println(
         mode,
-        "         bad_divzero|bad_mmap|bad_munmap|bad_display|bad_input|mmap_ro_fault|",
+        "         bad_divzero|bad_mmap|bad_munmap|bad_display|bad_input|bad_net|mmap_ro_fault|",
     );
     println(
         mode,

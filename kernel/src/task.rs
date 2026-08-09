@@ -921,6 +921,9 @@ pub fn exit() -> ! {
 /// space, that same `schedule()` call frees it once CR3 has moved off it
 /// (see `Scheduler::prepare_switch` / `schedule`'s docs).
 pub fn exit_with_code(code: i32) -> ! {
+    if let Some(pid) = current_task_id() {
+        crate::net::close_process_sockets(pid);
+    }
     with_scheduler(|slot| {
         if let Some(sched) = slot.as_mut() {
             let idx = sched.current;
@@ -1001,6 +1004,8 @@ pub fn kill(id: u32) -> Result<(), &'static str> {
     if id == 1 {
         return Err("cannot kill shell task");
     }
+
+    crate::net::close_process_sockets(id);
 
     let reclaim = with_scheduler(|slot| {
         let sched = slot.as_mut().ok_or("scheduler not initialized")?;

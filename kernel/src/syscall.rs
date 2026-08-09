@@ -36,6 +36,10 @@
 //! |19 | READDIR        | `path_ptr, path_len, spec_ptr` | bytes listed, or `-1`        |
 //! |20 | STAT           | `path_ptr, path_len, out_ptr`  | `0`, or `-1`                 |
 //! |21 | SEEK           | `handle, absolute_offset`      | new offset, or `-1`          |
+//! |22 | UDP_OPEN       | `local_port`                   | owner-bound handle, or `-1`  |
+//! |23 | UDP_SEND       | `handle, send_spec_ptr`        | payload bytes, or `-1`       |
+//! |24 | UDP_RECV       | `handle, out_ptr, out_len`     | record bytes, `0`, or `-1`   |
+//! |25 | UDP_CLOSE      | `handle`                       | `0`, or `-1`                 |
 //!
 //! (Phase 5 -- see `ARCHITECTURE.md`'s "Phase 5: userland runtime and the
 //! first graphical desktop" section for the design behind 4-9.)
@@ -95,6 +99,10 @@ const SYS_MKDIR: u64 = 18;
 const SYS_READDIR: u64 = 19;
 const SYS_STAT: u64 = 20;
 const SYS_SEEK: u64 = 21;
+const SYS_UDP_OPEN: u64 = 22;
+const SYS_UDP_SEND: u64 = 23;
+const SYS_UDP_RECV: u64 = 24;
+const SYS_UDP_CLOSE: u64 = 25;
 
 /// Upper bound on a single `WRITE`'s length -- generous for this ABI's
 /// only real use (a handful of short diagnostic lines from `hello_user`),
@@ -104,6 +112,8 @@ const MAX_WRITE_LEN: usize = 4096;
 const MAX_FILE_IO_LEN: usize = 4096;
 const BUFFER_SPEC_LEN: usize = 16;
 const STAT_RECORD_LEN: usize = 16;
+const UDP_SEND_SPEC_LEN: usize = 24;
+const UDP_RECV_HEADER_LEN: usize = 8;
 
 /// The 15 general-purpose registers `syscall_entry` saves, in the exact
 /// order they land in memory (lowest address first) given the push order
@@ -225,6 +235,10 @@ fn dispatch(num: u64, a1: u64, a2: u64, a3: u64) -> i64 {
         SYS_READDIR => sys_readdir(a1, a2, a3),
         SYS_STAT => sys_stat(a1, a2, a3),
         SYS_SEEK => sys_seek(a1, a2),
+        SYS_UDP_OPEN => sys_udp_open(a1),
+        SYS_UDP_SEND => sys_udp_send(a1, a2),
+        SYS_UDP_RECV => sys_udp_recv(a1, a2, a3),
+        SYS_UDP_CLOSE => sys_udp_close(a1),
         _ => {
             // Exactly the "unknown syscall numbers must fail safely"
             // requirement: logged for visibility, a plain error return,
@@ -234,6 +248,101 @@ fn dispatch(num: u64, a1: u64, a2: u64, a3: u64) -> i64 {
             -1
         }
     }
+}
+
+fn sys_udp_open(raw_port: u64) -> i64 {
+    let Ok(port) = u16::try_from(raw_port) else {
+        return -1;
+    };
+    let Some(pid) = task::current_task_id() else {
+        return -1;
+    };
+    crate::net::udp_open(pid, port).map(i64::from).unwrap_or(-1)
+}
+
+fn sys_udp_send(raw_handle: u64, spec_ptr: u64) -> i64 {
+    let Ok(handle) = u32::try_from(raw_handle) else {
+        return -1;
+    };
+    // Copy the complete fixed-size descriptor before interpreting any field.
+    // Its reserved bytes must be zero so the ABI can evolve without silently
+    // accepting an incompatible userspace layout.
+    let Some(spec) = task::copy_from_current_user(spec_ptr, UDP_SEND_SPEC_LEN) else {
+        return -1;
+    };
+    if spec[18..].iter().any(|byte| *byte != 0) {
+        return -1;
+    }
+    let data_ptr = u64::from_le_bytes([
+        spec[0], spec[1], spec[2], spec[3], spec[4], spec[5], spec[6], spec[7],
+    ]);
+    let data_len = u32::from_le_bytes([spec[8], spec[9], spec[10], spec[11]]) as usize;
+    if data_len == 0 || data_len > crate::net::MAX_UDP_PAYLOAD {
+        return -1;
+    }
+    let destination = smoltcp::wire::Ipv4Address::new(spec[12], spec[13], spec[14], spec[15]);
+    let port = u16::from_le_bytes([spec[16], spec[17]]);
+    // User memory is copied in full before socket state is mutated.  A
+    // malformed/cross-page source cannot enqueue a partial datagram.
+    let Some(payload) = task::copy_from_current_user(data_ptr, data_len) else {
+        return -1;
+    };
+    let Some(pid) = task::current_task_id() else {
+        return -1;
+    };
+    crate::net::udp_send(pid, handle, destination, port, &payload)
+        .ok()
+        .and_then(|length| i64::try_from(length).ok())
+        .unwrap_or(-1)
+}
+
+fn sys_udp_recv(raw_handle: u64, out_ptr: u64, out_len: u64) -> i64 {
+    let Ok(handle) = u32::try_from(raw_handle) else {
+        return -1;
+    };
+    let Ok(out_len) = usize::try_from(out_len) else {
+        return -1;
+    };
+    let maximum = UDP_RECV_HEADER_LEN + crate::net::MAX_UDP_PAYLOAD;
+    if out_len != maximum {
+        return -1;
+    }
+    // Validate before polling or dequeuing.  Even an empty socket rejects a
+    // malformed destination, and a failed copy cannot consume a datagram.
+    if !task::validate_current_user_range(out_ptr, out_len, true) {
+        return -1;
+    }
+    let Some(pid) = task::current_task_id() else {
+        return -1;
+    };
+    let datagram = match crate::net::udp_receive(pid, handle) {
+        Ok(Some(datagram)) => datagram,
+        Ok(None) => return 0,
+        Err(_) => return -1,
+    };
+    let record_len = UDP_RECV_HEADER_LEN + datagram.length;
+    // The ABI requires a maximum-sized output record, checked above before
+    // dequeue, so every valid bounded datagram is guaranteed to fit.
+    let mut record = [0u8; UDP_RECV_HEADER_LEN + crate::net::MAX_UDP_PAYLOAD];
+    record[0..4].copy_from_slice(&datagram.source.octets());
+    record[4..6].copy_from_slice(&datagram.source_port.to_le_bytes());
+    record[6..8].copy_from_slice(&(datagram.length as u16).to_le_bytes());
+    record[8..record_len].copy_from_slice(&datagram.payload[..datagram.length]);
+    if task::copy_to_current_user(out_ptr, &record[..record_len]) {
+        record_len as i64
+    } else {
+        -1
+    }
+}
+
+fn sys_udp_close(raw_handle: u64) -> i64 {
+    let Ok(handle) = u32::try_from(raw_handle) else {
+        return -1;
+    };
+    let Some(pid) = task::current_task_id() else {
+        return -1;
+    };
+    crate::net::udp_close(pid, handle).map(|()| 0).unwrap_or(-1)
 }
 
 fn sys_exit(code: i32) -> ! {
