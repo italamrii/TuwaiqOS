@@ -108,6 +108,17 @@ fn create_tuwaiqfs_application_volume(image: &Path, target_dir: &Path) -> Result
         ("file_manager", "file-manager"),
         ("terminal", "terminal"),
         ("tuwaiq_ai", "tuwaiq-ai"),
+        ("ipc_provider", "ipc-provider"),
+        ("ipc_client", "ipc-client"),
+        ("ipc_intruder", "ipc-intruder"),
+        ("ipc_crash_provider", "ipc-crash-provider"),
+        ("ipc_crash_client", "ipc-crash-client"),
+        ("ipc_timeout_provider", "ipc-timeout-provider"),
+        ("ipc_timeout_client", "ipc-timeout-client"),
+        ("ipc_backpressure_provider", "ipc-backpressure-provider"),
+        ("ipc_backpressure_client", "ipc-backpressure-client"),
+        ("ipc_waiter", "ipc-waiter"),
+        ("bad_ipc", "bad-ipc"),
     ];
     let mut blob = Vec::new();
     blob.extend_from_slice(b"TREE");
@@ -127,10 +138,26 @@ fn create_tuwaiqfs_application_volume(image: &Path, target_dir: &Path) -> Result
         let installed_path = format!("apps/{installed_name}");
         write_tuwaiqfs_record(&mut blob, 1, &installed_path, Some(&bytes))?;
     }
-    let catalog = b"desktop\nfile-manager\nterminal\ntuwaiq-ai\n";
+    let catalog = b"desktop\nfile-manager\nterminal\ntuwaiq-ai\nipc-provider\nipc-client\nipc-intruder\nipc-crash-provider\nipc-crash-client\nipc-timeout-provider\nipc-timeout-client\nipc-backpressure-provider\nipc-backpressure-client\nipc-waiter\nbad-ipc\n";
     write_tuwaiqfs_record(&mut blob, 1, "apps/catalog.txt", Some(catalog))?;
     write_tuwaiqfs_record(&mut blob, 2, "data", None)?;
-    for directory in ["desktop", "file-manager", "terminal", "tuwaiq-ai"] {
+    for directory in [
+        "desktop",
+        "file-manager",
+        "terminal",
+        "tuwaiq-ai",
+        "ipc-provider",
+        "ipc-client",
+        "ipc-intruder",
+        "ipc-crash-provider",
+        "ipc-crash-client",
+        "ipc-timeout-provider",
+        "ipc-timeout-client",
+        "ipc-backpressure-provider",
+        "ipc-backpressure-client",
+        "ipc-waiter",
+        "bad-ipc",
+    ] {
         write_tuwaiqfs_record(&mut blob, 2, &format!("data/{directory}"), None)?;
     }
     if blob.len() > TUWAIQFS_MAX_METADATA {

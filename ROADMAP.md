@@ -279,9 +279,19 @@ practical to develop.
 **Depends on:** filesystem-backed applications from Phase 6 and the device/
 network foundations needed by platform services from Phase 7.
 
+**Status:** in progress. The versioned IPC/capability foundation below is
+implemented and QEMU-verified on the latest merged `main`. Phase 8 is not
+complete: the remaining unchecked platform/SDK items and integration against
+the accepted Phase 7 base still gate the phase exit.
+
 - [ ] Stabilize and version the native Tuwaiq ABI with compatibility policy
-- [ ] Add IPC with explicit endpoint ownership, bounds, and teardown behavior
-- [ ] Add permissions/capabilities and least-privilege process services
+- [x] Add versioned IPC with explicit endpoint ownership, fixed message/queue
+      bounds, blocking wakeups, timeouts, request/reply, and teardown behavior
+- [x] Add process-local kernel-issued capability handles, generation checks,
+      least-rights delegation/revocation, fixed table bounds, and delegated
+      file/directory scopes
+- [ ] Build the broader application permission broker and least-privilege
+      process services on the verified capability foundation
 - [ ] Move Tuwaiq AI Preview service/UI communication onto bounded IPC and
       require the same capabilities as every other native application
 - [ ] Expand process services, including runtime memory management beyond the
@@ -295,6 +305,24 @@ network foundations needed by platform services from Phase 7.
       prerequisite for earlier application work
 - [ ] Add multi-user/session foundations only after permissions and service
       isolation are enforceable
+
+### IPC/capability foundation verification
+
+The repository-local `scripts\phase8-ipc-smoke.ps1` suite exercises real
+filesystem-backed provider/client programs, unauthorized peers, provider exit,
+call timeout/late reply, full-queue backpressure, FIFO order, exact-scope file
+reads, revocation, hostile ABI pointers/handles/paths, table exhaustion, reboot,
+and 20 measured lifecycle cycles. The measured run returned tasks, live frames,
+frame bump, heap bytes, endpoints, capabilities, calls, scopes, queued messages,
+and waiters to their exact warmed baselines (latest: tasks `3->3`, frames
+`1029->1029`, bump `1062->1062`, heap `280520->280520`, IPC counters `0->0`).
+Phase 6 VFS/storage and the merged base's network behavior also passed.
+
+This branch is intentionally based on merged `main`; Phase 7 changes are not
+present there as of this milestone. The required Phase 7 PCI/virtual-network
+regression is therefore not claimed. After Phase 7 is accepted, this branch
+must be updated onto that main and the relevant regression rerun before Phase 8
+can satisfy its complete exit gate.
 
 ### TuwaiqOS Owner / Developer Mode
 

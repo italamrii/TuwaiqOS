@@ -13,6 +13,7 @@ use crate::ai_bridge;
 use crate::allocator;
 use crate::apps::{editor, monitor, notes};
 use crate::interrupts;
+use crate::ipc;
 use crate::keyboard::{poll_key, KeyEvent};
 use crate::loader;
 use crate::memory;
@@ -366,6 +367,8 @@ fn execute_command(boot_info: &BootInfo, mode: ConsoleMode, line: &str) {
         "mousetest" => handle_mouse_test(mode),
         "desktopstats" => print_desktop_lifecycle_stats("manual"),
         "inputstats" => print_input_telemetry(mode, "manual"),
+        "ipcstats" => print_ipc_stats(mode, "manual"),
+        "ipctest" => handle_ipc_test(mode, args),
         "ai" => handle_ai_command(mode, line, args),
         "ask" => handle_ask_command(mode, args),
         _ => {
@@ -2193,6 +2196,143 @@ fn print_desktop_lifecycle_stats(label: &str) {
     );
 }
 
+fn print_ipc_stats(mode: ConsoleMode, label: &str) {
+    let stats = ipc::stats();
+    let line = format!(
+        "ipc: stats label={} endpoints={} capabilities={} calls={} scopes={} queued={} waiters={}",
+        label,
+        stats.endpoints,
+        stats.capabilities,
+        stats.calls,
+        stats.scopes,
+        stats.queued_messages,
+        stats.waiters
+    );
+    println(mode, &line);
+}
+
+fn run_ipc_program(path: &str, settle_ticks: u64) -> Result<(), &'static str> {
+    let id = spawn_from_vfs(path, "/")?;
+    wait_for_terminated(id);
+    let exit = task::info(id).ok().and_then(|info| info.exit_code);
+    if settle_ticks != 0 {
+        task::sleep_ticks(settle_ticks);
+    }
+    task::reap_now();
+    if exit == Some(0) || path.ends_with("ipc-crash-provider") && exit == Some(77) {
+        Ok(())
+    } else {
+        Err("Phase 8 program returned an unexpected exit status")
+    }
+}
+
+/// Bounded end-to-end Phase 8 lifecycle proof. One complete warm-up grows
+/// reusable task/frame/heap pools; the measured cycles must return every IPC
+/// object and all existing process resources to the exact warm baseline.
+fn handle_ipc_test(mode: ConsoleMode, args: &str) {
+    let cycles = match args.trim().parse::<u32>() {
+        Ok(value) if (1..=50).contains(&value) => value,
+        _ => {
+            println(mode, "Usage: ipctest <1-50>");
+            return;
+        }
+    };
+    let sequence = [
+        ("/apps/ipc-provider", 5),
+        ("/apps/ipc-crash-provider", 5),
+        ("/apps/ipc-timeout-provider", 5),
+        ("/apps/ipc-backpressure-provider", 5),
+        ("/apps/bad-ipc", 105),
+    ];
+    // Two passes are intentional: the first provisions persistent provider
+    // data and grows task/allocator pools; the second proves that those
+    // one-time effects have converged before the measured baseline.
+    for pass in 1..=2 {
+        for (path, settle) in sequence {
+            if let Err(reason) = run_ipc_program(path, settle) {
+                println(
+                    mode,
+                    &format!("ipc: FAIL warmup={} path={} reason={}", pass, path, reason),
+                );
+                return;
+            }
+        }
+    }
+    task::reap_now();
+    let before = desktop_lifecycle_stats();
+    let ipc_before = ipc::stats();
+
+    for cycle in 1..=cycles {
+        for (path, settle) in [
+            ("/apps/ipc-provider", 5),
+            ("/apps/ipc-crash-provider", 5),
+            ("/apps/ipc-timeout-provider", 5),
+            ("/apps/ipc-backpressure-provider", 5),
+        ] {
+            if let Err(reason) = run_ipc_program(path, settle) {
+                println(
+                    mode,
+                    &format!("ipc: FAIL cycle={} path={} reason={}", cycle, path, reason),
+                );
+                return;
+            }
+        }
+    }
+    if let Err(reason) = run_ipc_program("/apps/bad-ipc", 105) {
+        println(mode, &format!("ipc: FAIL hostile suite reason={}", reason));
+        return;
+    }
+
+    task::reap_now();
+    let after = desktop_lifecycle_stats();
+    let ipc_after = ipc::stats();
+    let ipc_empty = ipc_after.endpoints == 0
+        && ipc_after.capabilities == 0
+        && ipc_after.calls == 0
+        && ipc_after.scopes == 0
+        && ipc_after.queued_messages == 0
+        && ipc_after.waiters == 0;
+    let stable = before.tasks == after.tasks
+        && before.live_frames == after.live_frames
+        && before.frame_bump == after.frame_bump
+        && before.heap_used == after.heap_used
+        && ipc_before.endpoints == 0
+        && ipc_before.capabilities == 0
+        && ipc_before.calls == 0
+        && ipc_before.scopes == 0
+        && ipc_before.queued_messages == 0
+        && ipc_before.waiters == 0
+        && ipc_empty;
+    println(
+        mode,
+        &format!(
+            "ipc: {} cycles={} tasks={}->{} frames={}->{} bump={}->{} heap={}->{} endpoints={}->{} capabilities={}->{} calls={}->{} scopes={}->{} queued={}->{} waiters={}->{}",
+            if stable { "PASS" } else { "FAIL" },
+            cycles,
+            before.tasks,
+            after.tasks,
+            before.live_frames,
+            after.live_frames,
+            before.frame_bump,
+            after.frame_bump,
+            before.heap_used,
+            after.heap_used,
+            ipc_before.endpoints,
+            ipc_after.endpoints,
+            ipc_before.capabilities,
+            ipc_after.capabilities,
+            ipc_before.calls,
+            ipc_after.calls,
+            ipc_before.scopes,
+            ipc_after.scopes,
+            ipc_before.queued_messages,
+            ipc_after.queued_messages,
+            ipc_before.waiters,
+            ipc_after.waiters
+        ),
+    );
+}
+
 #[derive(Clone, Copy)]
 struct DesktopLifecycleStats {
     tasks: usize,
@@ -2684,6 +2824,7 @@ fn print_help(mode: ConsoleMode) {
         "  installapp <name> | runfs <path> | vfstest | storagetest",
     );
     println(mode, "  fsinterrupttest | fsexhausttest");
+    println(mode, "  ipctest <count> | ipcstats");
     println(mode, "  aipreviewtest | desktopaitest");
     println(mode, "  isolate [bad_program]");
     println(mode, "  spawnfail <count>");
@@ -2823,6 +2964,8 @@ fn command_names() -> &'static [&'static str] {
         "mousetest",
         "desktopstats",
         "inputstats",
+        "ipctest",
+        "ipcstats",
         "ai",
         "ask",
     ]

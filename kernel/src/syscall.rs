@@ -6,11 +6,13 @@
 //!
 //! `int 0x80`. `RAX` is the syscall number on entry and the return value on
 //! exit. Arguments are `RDI`, `RSI`, `RDX` (up to three -- nothing here
-//! needs more). Return values follow a simple POSIX-ish convention: `>= 0`
-//! is success (a byte count, a pid, or plain `0`), `-1` is a generic
-//! failure (invalid syscall number, invalid pointer/range, or a rejected
-//! argument) -- there is no `errno`-style detail channel in this minimal
-//! ABI, only success/failure.
+//! needs more). Return values for syscalls 0-21 follow a simple POSIX-ish
+//! convention: `>= 0` is success (a byte count, a pid, or plain `0`), and
+//! `-1` is a generic failure. Syscalls 22-37 are the versioned IPC/capability
+//! surface: they accept a structure pointer in `RDI` and exact length in
+//! `RSI`, and return either a nonnegative result or one of the stable IPC
+//! error codes documented in `docs/IPC_ABI.md` (for example `-2` version,
+//! `-4` bad handle, `-6` rights). Unknown syscall numbers still return `-1`.
 //!
 //! | # | name           | args                          | returns                     |
 //! |---|----------------|-------------------------------|------------------------------|
@@ -36,6 +38,7 @@
 //! |19 | READDIR        | `path_ptr, path_len, spec_ptr` | bytes listed, or `-1`        |
 //! |20 | STAT           | `path_ptr, path_len, out_ptr`  | `0`, or `-1`                 |
 //! |21 | SEEK           | `handle, absolute_offset`      | new offset, or `-1`          |
+//! |22-37| IPC/CAPS/VFS | versioned structure pointer/len| result or stable IPC error  |
 //!
 //! (Phase 5 -- see `ARCHITECTURE.md`'s "Phase 5: userland runtime and the
 //! first graphical desktop" section for the design behind 4-9.)
@@ -71,7 +74,7 @@
 //! Required permissions are checked for the whole range before mutation. A
 //! malformed address or range is a clean `-1`, never a Ring-0 panic or fault.
 
-use crate::task;
+use crate::{ipc, task};
 
 const SYS_EXIT: u64 = 0;
 const SYS_WRITE: u64 = 1;
@@ -95,6 +98,22 @@ const SYS_MKDIR: u64 = 18;
 const SYS_READDIR: u64 = 19;
 const SYS_STAT: u64 = 20;
 const SYS_SEEK: u64 = 21;
+const SYS_ENDPOINT_CREATE: u64 = 22;
+const SYS_ENDPOINT_CLOSE: u64 = 23;
+const SYS_SEND: u64 = 24;
+const SYS_RECEIVE: u64 = 25;
+const SYS_TRY_SEND: u64 = 26;
+const SYS_TRY_RECEIVE: u64 = 27;
+const SYS_CALL: u64 = 28;
+const SYS_REPLY: u64 = 29;
+const SYS_CAPABILITY_CLOSE: u64 = 30;
+const SYS_CAPABILITY_DELEGATE: u64 = 31;
+const SYS_CAPABILITY_ACCEPT: u64 = 32;
+const SYS_FS_SCOPE_CREATE: u64 = 33;
+const SYS_FS_READ: u64 = 34;
+const SYS_FS_PUT: u64 = 35;
+const SYS_FS_LIST: u64 = 36;
+const SYS_CAPABILITY_QUERY: u64 = 37;
 
 /// Upper bound on a single `WRITE`'s length -- generous for this ABI's
 /// only real use (a handful of short diagnostic lines from `hello_user`),
@@ -225,6 +244,22 @@ fn dispatch(num: u64, a1: u64, a2: u64, a3: u64) -> i64 {
         SYS_READDIR => sys_readdir(a1, a2, a3),
         SYS_STAT => sys_stat(a1, a2, a3),
         SYS_SEEK => sys_seek(a1, a2),
+        SYS_ENDPOINT_CREATE => ipc::sys_endpoint_create(a1, a2),
+        SYS_ENDPOINT_CLOSE => ipc::sys_endpoint_close(a1, a2),
+        SYS_SEND => ipc::sys_send(a1, a2),
+        SYS_RECEIVE => ipc::sys_receive(a1, a2),
+        SYS_TRY_SEND => ipc::sys_try_send(a1, a2),
+        SYS_TRY_RECEIVE => ipc::sys_try_receive(a1, a2),
+        SYS_CALL => ipc::sys_call(a1, a2),
+        SYS_REPLY => ipc::sys_reply(a1, a2),
+        SYS_CAPABILITY_CLOSE => ipc::sys_capability_close(a1, a2),
+        SYS_CAPABILITY_DELEGATE => ipc::sys_capability_delegate(a1, a2),
+        SYS_CAPABILITY_ACCEPT => ipc::sys_capability_accept(a1, a2),
+        SYS_FS_SCOPE_CREATE => ipc::sys_fs_scope_create(a1, a2),
+        SYS_FS_READ => ipc::sys_fs_read(a1, a2),
+        SYS_FS_PUT => ipc::sys_fs_put(a1, a2),
+        SYS_FS_LIST => ipc::sys_fs_list(a1, a2),
+        SYS_CAPABILITY_QUERY => ipc::sys_capability_query(a1, a2),
         _ => {
             // Exactly the "unknown syscall numbers must fail safely"
             // requirement: logged for visibility, a plain error return,

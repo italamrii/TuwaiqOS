@@ -551,7 +551,9 @@ hardware-verified evidence, not a heuristic.
   filesystem-backed executable loading. Phase 6 now supplies the initial
   filesystem path; dynamic linking and relocation remain future work.
 - At Phase 5 completion the syscall surface contained 10 calls and no file
-  API. Phase 6 extends it to 22 calls; IPC remains future.
+  API. Phase 6 extended it to 22 calls; the Phase 8 IPC/capability foundation
+  extends it to 37 (`docs/IPC_ABI.md`), including `capability_query`. The broader
+  native ABI is not yet declared stable.
 
 ### Verification performed
 
@@ -1038,8 +1040,9 @@ v3 dual checkpoints                validated read-only FAT chains
 
 ### Current Ring 3 file/process ABI
 
-Syscalls 10-21 extend the Phase 5 ABI to 22 calls. They are an intentionally
-small milestone ABI, not the future stable/versioned application ABI:
+Syscalls 10-21 extend the Phase 5 ABI to the Phase 6 file/process surface.
+They remain an intentionally small milestone ABI, not the future stable and
+fully versioned application ABI:
 
 - `CHDIR` and `GETCWD` operate only on the calling process.
 - `OPEN` returns a read-only process-owned handle. Handles start at 3, are
@@ -1076,23 +1079,165 @@ small milestone ABI, not the future stable/versioned application ABI:
 - Ring 3 mutation is confined to `/data/<process-name>/`. Trusted application
   installation provisions that directory. Normalized escape attempts,
   `/apps` replacement, another application's namespace, invalid paths, and
-  malformed user pointers are rejected. This is a bounded early ownership
-  rule, not the future Phase 8 capability/delegation system.
+  malformed user pointers are rejected. This private namespace remains the
+  default authority; Phase 8 adds only explicit, narrower shared authority.
 - User-copy storage is reserved before the interrupt-safe scheduler lock is
   entered. Only bounded page validation and copying occur while the current
   address-space reference is protected; filesystem allocation, tree cloning,
   serialization, and ATA I/O all run with interrupts enabled and without a
   global spin lock held.
 
-Ring 3 has no rename, shared-directory delegation, or general writable-handle
-API, and applications cannot manipulate TuwaiqFS internals directly. Delegated
-authority depends on Phase 8's versioned IPC/capability model; a user-facing
-offline repair utility is deferred to Phase 9 system tooling. FAT32 is 8.3 and
+Ring 3 has no rename or general writable-handle API, and applications cannot
+manipulate TuwaiqFS internals directly. Phase 8 adds exact-scope file/directory
+delegation without exposing a backend node; a user-facing offline repair
+utility is deferred to Phase 9 system tooling. FAT32 is 8.3 and
 read-only, TuwaiqFS files remain capped at 65,535 bytes, and ATA PIO is the only
 current storage transport. The current interrupt-gate syscall path also remains
 non-preemptible while loading a `SPAWN` image (bounded to 65,535 bytes); moving
 filesystem reads and ELF preparation out of that interval is required before
 larger executables or general storage backends are admitted.
+
+## Phase 8 IPC and capability foundation
+
+### Versioned boundary
+
+Syscalls 22-37 accept only fixed-size ABI v1 records documented in
+`docs/IPC_ABI.md`. Each record starts with `version`, exact structure `size`,
+and zero `flags`. Unknown versions, sizes, flags, reserved fields, or reserved
+message type zero are rejected before object state changes. Messages contain a
+maximum 256-byte inline payload; user-controlled lengths never determine an
+allocation. Complete source/destination structures and nested file buffers are
+validated against the caller's address space, permissions, overflow, and every
+crossed page before publication or VFS mutation. No ABI value exposes a kernel
+pointer, table index, object generation, or internal object identity.
+
+### Objects, capabilities, and ownership
+
+The IPC state is fixed-capacity: 64 endpoints, eight queued messages per
+endpoint, 64 process capability records, 32 capability slots per process, 16
+pending delegated capabilities per process, 64 calls, 64 VFS scopes, 256 grant
+nodes, and 64 waiters per endpoint direction. Exhaustion returns a stable error;
+it never expands storage from Ring 3 input.
+
+An endpoint or VFS scope is reachable only through an opaque, positive 63-bit
+process-local handle issued by the kernel. A capability slot resolves to an
+object type and generation, rights mask, grant generation, active/revoked
+state, and reference ownership. Handle lookup occurs only in the caller's
+table, so copying a numeric handle to another process grants no authority.
+Closing and slot reuse advance generations; forged, stale, double-closed,
+wrong-type, and cross-process handles fail safely.
+
+Rights are `SEND`, `RECEIVE`, `REPLY`, `DELEGATE`, `CLOSE`, `FILE_READ`,
+`FILE_WRITE`, and `FILE_LIST`. Delegation requires `DELEGATE`, cannot add a bit
+the source lacks, creates a child grant, and places the new handle in the
+target's bounded accept inbox. The delegator receives a close-only revoker for
+that child grant. Closing a capability revokes its descendants; closing a
+revoker invalidates its delegated subtree. Owner exit closes owned endpoints
+and scopes, revokes descendant authority, releases references, and wakes peers.
+
+### Queues, scheduler, and calls
+
+Endpoint queues are FIFO and have a creation-time depth from one to eight.
+`try_send`/`try_receive` return `WOULD_BLOCK`. Blocking send/receive/call/accept
+atomically register a fixed waiter and mark the task `Blocked`; the IPC lock is
+then released before `schedule()`. Queue transitions, reply, endpoint close,
+peer exit, or the timer deadline mark a waiter `Ready`. No syscall busy-waits.
+Timeouts are in 100 Hz ticks, capped at 10,000; zero means no deadline for
+send/receive/accept, while a call requires an explicit nonzero deadline.
+
+`call` creates an opaque correlation token and queues one request atomically.
+Only a process that receives that request through a capability holding
+`REPLY` becomes authorized to use the token. Reply changes the call state once
+and wakes its caller once. Duplicate, forged, cross-endpoint, unauthorized, and
+late replies are rejected. Timeout removes an unreceived queued request; caller
+exit does the same. Receiver/endpoint exit completes a waiting call with
+`PEER_EXITED`. Endpoint close discards its queue and wakes all blocked peers
+with `CLOSED`.
+
+### Delegated VFS authority
+
+Every application retains its default private `/data/<process-name>/` mutation
+authority. It may create a capability only for an existing normalized file or
+directory inside that root. A delegated child scope is resolved relative to
+its parent and checked with component-boundary matching and longest-prefix
+mount identity. Absolute children, normalized `..` escape, string-prefix
+confusion, and crossing into `/boot` or another mount fail. `/boot` remains
+read-only; ordinary applications cannot replace `/apps`; no disk/VFS backend
+object crosses Ring 3.
+
+Capability file reads, whole-file writes, and directory lists are each bounded
+to 4096 bytes and execute only after a scope/rights snapshot is authorized.
+VFS allocation and disk I/O happen outside the IPC lock and with interrupts
+enabled. Revocation prevents every later operation; an already-authorized,
+in-flight bounded VFS operation is allowed to finish, the standard revocation
+cutover for this single-threaded process model.
+
+### Lock order and cleanup invariants
+
+`IPC_STATE` is a single interrupt-safe lock over fixed storage. Its only nested
+lock is the scheduler for an atomic block/wake transition, so the order is
+strictly `IPC_STATE -> SCHEDULER`. Task exit/kill calls IPC cleanup only while
+not holding the scheduler lock. User copies, allocation, VFS work, ELF work, and
+disk I/O never occur while `IPC_STATE` is held: receive and call-reply encode
+into a kernel-owned fixed buffer under the lock, copy after release, and commit
+only if the peeked message or reply is still present. No interrupt path
+acquires IPC state.
+
+Process cleanup removes queued calls from dead callers, fails calls whose
+authorized receiver died, removes send/receive/accept waiters, closes owned
+objects, drops queued messages, revokes grant trees, releases object references,
+and clears the process table. Fixed arrays contain queued payloads and calls,
+so cleanup performs no allocation and cannot fail partway through.
+
+### Bounded limitations
+
+- This is ABI v1 for the IPC subsystem, not stabilization of the complete
+  native ABI or a compatibility promise for every pre-Phase-8 syscall.
+- Capability bootstrap is explicit pid-targeted delegation plus a bounded
+  accept inbox; named service discovery and a general Permission Broker remain
+  Phase 8 work.
+- VFS capability I/O is whole-file/bounded and has no persistent writable file
+  handle, rename, or cross-mount scope.
+- A revoked inbox slot is recycled when the recipient accepts/closes it or the
+  process exits; revoked authority is unusable immediately.
+- Tuwaiq AI Preview has not been migrated to IPC and gains no new privilege.
+  No package manager, dynamic linking, multi-user sessions, Linux
+  compatibility, or Phase 9 feature is included.
+
+### Phase 8 IPC Verification Performed
+
+The repository-local focused gate is:
+
+```powershell
+cargo fmt --all -- --check
+git diff --check
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\phase8-ipc-smoke.ps1
+```
+
+The assertion-driven QEMU suite runs real filesystem-backed provider, client,
+unauthorized peer, peer-crash, timeout, backpressure, and hostile binaries. It
+checks request/reply, duplicate and late reply rejection, peer-exit wakeup,
+FIFO/backpressure, revocation, exact-scope file reads, rights amplification,
+path/mount escape, table/queue exhaustion, and every IPC structure through
+null, noncanonical, kernel, unmapped, overflowing, and cross-page pointers. It
+then runs 20 warm-measured create/send/receive/call/close/crash/relaunch cycles,
+Phase 6 VFS/storage regression, merged-base network behavior, a genuine reboot,
+persistent provider data, and post-reboot IPC relaunch.
+
+The verified candidate built 36 Ring 3 ELFs, the kernel, and the 48,234,496-byte
+BIOS image with the existing nine warnings and zero new warnings. The focused
+run reported exact resource reuse after 20 measured cycles: tasks `3->3`, live
+frames `1029->1029`, frame bump `1062->1062`, heap bytes returning to the warmed
+baseline, and endpoints, capabilities, calls, scopes, queued messages, and
+waiters all `0->0`. No kernel panic, Ring 0 page fault, double fault, deadlock
+marker, or unexpected QEMU exit occurred.
+
+Phase 7 is not merged into the `main` base used for this isolated branch, so
+PCI/virtual-network regression against Phase 7 is not claimed. The branch must
+be updated onto the accepted Phase 7 main and that regression rerun before the
+complete Phase 8 exit gate can pass. QEMU evidence does not claim physical
+hardware or ESXi validation.
 
 ## Early Tuwaiq AI Preview architecture
 
@@ -1127,7 +1272,8 @@ LocalDevelopmentProvider -> Unavailable (no inference)
 
 ### FUTURE
 
-Phase 8 supplies bounded IPC and the Permission Broker; Phase 9 packages
+Phase 8 now supplies bounded IPC and capability primitives. The broader
+Permission Broker remains unfinished; Phase 9 packages
 assistant surfaces/providers and permissioned tools; Phase 11 remains the full
 Agent Runtime completion target. The mandatory action path is:
 
@@ -1197,14 +1343,14 @@ The 2026-08-09 acceptance run produced 14 asserted passes:
   readable, and rejected root mutation. No silent formatting, empty-tree
   substitution, corruption acceptance, or claimed repair occurred.
 
-The build completed all 25 Ring 3 ELFs, the kernel, and the 48,234,496-byte BIOS
+The Phase 6 build completed all 25 Ring 3 ELFs, the kernel, and the 48,234,496-byte BIOS
 disk image with the existing nine kernel warnings and zero new warnings.
 Formatting and `git diff --check` are separate final gates.
 
-Phase 6 intentionally does not implement shared/delegated capabilities, a
+Phase 6 intentionally did not implement shared/delegated capabilities, a
 general repair utility, large files, long FAT names, FAT writes, rename, or
-general writable handles. The first two depend on Phase 8 capabilities and
-Phase 9 system tooling as recorded in `ROADMAP.md`; the other bounded limits are
+general writable handles. Phase 8 now supplies the first item; repair depends
+on Phase 9 system tooling as recorded in `ROADMAP.md`; the other bounded limits are
 documented rather than represented as completed functionality. Phase 6 adds no
 networking, driver framework, telemetry, model inference, or privileged AI
 action.
@@ -1322,7 +1468,7 @@ Loopback driver echoes packets in RAM. `ping localhost` validates the stack. HTT
    directory (its `.cargo/config.toml` supplies the static-relocation/
    large-code-model/no-PIE flags a fixed high address like
    `0x_7000_0000_0000` requires -- running from the repo root would
-   silently miss that config). The current tree builds 25 ELF programs:
+   silently miss that config). The current tree builds 36 ELF programs:
    functional, hostile pointer/fault, VM rollback/permission, desktop, and
    concurrency coverage, including `desktop` (Phase 5's Tuwaiq Desktop --
    a multi-file binary under `src/bin/desktop/`, sharing this same crate

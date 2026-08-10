@@ -44,8 +44,24 @@ Ring 3 filesystem mutation is currently limited to the installed
 application's `/data/<process-name>/` namespace. User descriptors, paths, and
 complete buffers are validated and copied before mutation. Applications cannot
 replace `/apps`, write another application's data directory, or access backend
-filesystem nodes directly. Shared/delegated access remains future capability
-work rather than an implicit privilege.
+filesystem nodes directly. Phase 8 adds explicit shared access through
+process-local, kernel-issued capabilities only. An owner may delegate no more
+than its own rights and must select an exact normalized file/directory scope;
+`..`, prefix confusion, alternate mount escape, `/boot` writes, `/apps`
+replacement, forged/stale/cross-process handles, and rights amplification are
+rejected. Revocation and owner exit invalidate descendants, while subsequent
+operations fail with bounded ABI errors. Ring 3 still never receives a backend
+node, disk-driver object, kernel pointer, or unrestricted VFS authority.
+
+IPC ABI v1 messages are fixed at 304 bytes with at most 256 payload bytes.
+Endpoints, queues, waiters, calls, process capability tables, grants, and VFS
+scopes all have compile-time bounds. The kernel validates the complete ABI
+structure and every nested user buffer before publication or VFS mutation.
+Unknown versions/flags/types, noncanonical/kernel/unmapped/cross-page pointers,
+overflow, table/queue exhaustion, duplicate/late/forged replies, and closed
+peers fail deterministically. Blocking uses scheduler state and explicit wakeup,
+not polling. Process exit closes owned endpoints, cancels calls, revokes grants,
+removes waiters, releases queued messages, and frees capability state.
 
 TuwaiqFS commits mutations through alternating checksummed checkpoints. A bad
 newest generation falls back only to an older valid committed generation. If

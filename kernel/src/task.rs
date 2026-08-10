@@ -908,6 +908,35 @@ pub fn sleep_ticks(ticks: u64) {
     schedule();
 }
 
+/// Atomically mark the current task as waiting for IPC. A deadline of
+/// `u64::MAX` means no timer deadline; an IPC close, reply, queue transition,
+/// or peer exit must wake it explicitly.
+pub fn block_current_for_ipc(deadline: u64) {
+    with_scheduler(|slot| {
+        if let Some(sched) = slot.as_mut() {
+            let idx = sched.current;
+            sched.tasks[idx].state = TaskState::Blocked;
+            sched.tasks[idx].wake_at_tick = if deadline == u64::MAX { 0 } else { deadline };
+        }
+    });
+}
+
+/// Wake one IPC waiter if it is still blocked. Calls are idempotent so a
+/// timer deadline racing a peer notification cannot enqueue a task twice.
+pub fn wake_ipc_task(id: u32) {
+    with_scheduler(|slot| {
+        let Some(sched) = slot.as_mut() else {
+            return;
+        };
+        if let Some(task) = sched.tasks.iter_mut().find(|task| task.id == id) {
+            if task.state == TaskState::Blocked {
+                task.state = TaskState::Ready;
+                task.wake_at_tick = 0;
+            }
+        }
+    });
+}
+
 /// Terminate the current task with exit code 0. Never returns.
 pub fn exit() -> ! {
     exit_with_code(0)
@@ -921,6 +950,9 @@ pub fn exit() -> ! {
 /// space, that same `schedule()` call frees it once CR3 has moved off it
 /// (see `Scheduler::prepare_switch` / `schedule`'s docs).
 pub fn exit_with_code(code: i32) -> ! {
+    if let Some(id) = current_task_id() {
+        crate::ipc::process_exit(id);
+    }
     with_scheduler(|slot| {
         if let Some(sched) = slot.as_mut() {
             let idx = sched.current;
@@ -1019,6 +1051,8 @@ pub fn kill(id: u32) -> Result<(), &'static str> {
         }
     })?;
 
+    crate::ipc::process_exit(id);
+
     if let Some(space) = reclaim {
         // Safety: confirmed above that `id` was not the current task's id,
         // so its address space cannot be the active CR3.
@@ -1061,6 +1095,16 @@ pub fn current_task_id() -> Option<u32> {
     with_scheduler(|slot| {
         let sched = slot.as_ref()?;
         Some(sched.tasks[sched.current].id)
+    })
+}
+
+/// Whether `id` currently names a live Ring-3 process. IPC delegation uses
+/// this as a bounded target check; it never treats a kernel task as a process.
+pub fn is_live_user_process(id: u32) -> bool {
+    with_scheduler(|slot| {
+        slot.as_ref()
+            .and_then(|sched| sched.tasks.iter().find(|task| task.id == id))
+            .is_some_and(|task| task.process.is_some() && task.state != TaskState::Terminated)
     })
 }
 

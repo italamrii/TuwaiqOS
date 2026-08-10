@@ -131,6 +131,18 @@ fn mount_snapshot() -> Result<Arc<MountTable>, &'static str> {
     })
 }
 
+/// Return whether two already-normalized absolute paths resolve through the
+/// same longest-prefix mount. Capability scopes use this before authorizing a
+/// child path so a scope can never cross from one backend into another.
+pub fn same_mount(left: &str, right: &str) -> Result<bool, &'static str> {
+    let left = normalize("/", left)?;
+    let right = normalize("/", right)?;
+    let table = mount_snapshot()?;
+    let (left_mount, _) = table.resolve(&left)?;
+    let (right_mount, _) = table.resolve(&right)?;
+    Ok(left_mount.path == right_mount.path)
+}
+
 /// Syscalls enter through an interrupt gate with IF clear. VFS traversal can
 /// allocate and FAT32 access performs ATA I/O, so execute backend work with
 /// interrupts enabled and restore the caller's original IF state afterward.

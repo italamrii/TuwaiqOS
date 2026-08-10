@@ -22,6 +22,7 @@ mod fs;
 mod gdt;
 mod input;
 mod interrupts;
+mod ipc;
 mod keyboard;
 mod loader;
 mod memory;
