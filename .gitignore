@@ -1,4 +1,4 @@
-/target
+target/
 /userland/hello/target
 **/*.img
 **/*.iso

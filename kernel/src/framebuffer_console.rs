@@ -8,6 +8,35 @@ use bootloader_api::info::{FrameBuffer, FrameBufferInfo, PixelFormat};
 
 use crate::font8x8;
 
+/// A 1-bit-per-pixel image: `rows` is `height` scanlines of
+/// `(width + 7) / 8` bytes, bits LSB-first within each byte to match
+/// `font8x8::pixel_is_set`.
+///
+/// Lives here rather than beside the generated data so that any consumer --
+/// the banner, the boot logo, a future console -- depends on the console,
+/// not on one particular blob of art.
+pub struct Bitmap {
+    pub width: usize,
+    pub height: usize,
+    pub rows: &'static [u8],
+}
+
+impl Bitmap {
+    /// Whether the pixel at (`x`, `y`) is set. Out-of-range reads report
+    /// unset rather than indexing, so a malformed descriptor cannot read
+    /// past `rows`.
+    pub fn pixel(&self, x: usize, y: usize) -> bool {
+        if x >= self.width || y >= self.height {
+            return false;
+        }
+        let stride = self.width.div_ceil(8);
+        match self.rows.get(y * stride + (x >> 3)) {
+            Some(byte) => (byte >> (x & 7)) & 1 == 1,
+            None => false,
+        }
+    }
+}
+
 const FONT_WIDTH: usize = 8;
 const FONT_HEIGHT: usize = 8;
 const SCALE_X: usize = 2;
@@ -322,4 +351,41 @@ where
     if let Some(info) = framebuffer_info() {
         f(info);
     }
+}
+
+/// Blit `bitmap` with its top-left corner at (`x`, `y`) in the given colour.
+///
+/// Does not touch the text cursor: the splash positions itself absolutely and
+/// hands the console back afterwards. Every pixel still goes through
+/// `write_pixel`, which clips against the real framebuffer geometry, so an
+/// oversized or badly placed bitmap is cropped rather than written out of
+/// range.
+pub fn blit_at(bitmap: &Bitmap, x: usize, y: usize, r: u8, g: u8, b: u8) {
+    with_console(|info| {
+        for row in 0..bitmap.height {
+            for col in 0..bitmap.width {
+                if bitmap.pixel(col, row) {
+                    write_pixel(info, x + col, y + row, r, g, b);
+                }
+            }
+        }
+    });
+}
+
+/// Framebuffer geometry, for callers that lay themselves out absolutely.
+pub fn dimensions() -> Option<(usize, usize)> {
+    framebuffer_info().map(|info| (info.width, info.height))
+}
+
+/// Fill an axis-aligned rectangle. Clipped by `write_pixel`, so an
+/// off-screen or oversized rectangle is cropped rather than written out of
+/// range.
+pub fn fill(x: usize, y: usize, w: usize, h: usize, r: u8, g: u8, b: u8) {
+    with_console(|info| {
+        for row in 0..h {
+            for col in 0..w {
+                write_pixel(info, x + col, y + row, r, g, b);
+            }
+        }
+    });
 }
