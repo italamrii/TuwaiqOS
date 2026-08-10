@@ -24,6 +24,10 @@ pub enum KeyEvent {
     ArrowDown,
     Tab,
     Escape,
+    /// A key was released. Carries the *press* scancode of that key (the
+    /// release bit 0x80 already stripped), so callers can match it against
+    /// the same code space as key-down without decoding twice.
+    KeyUp(u8),
     None,
 }
 
@@ -157,7 +161,11 @@ pub fn poll_key() -> KeyEvent {
 
 fn translate_extended(scancode: u8) -> Option<KeyEvent> {
     if scancode & 0x80 != 0 {
-        return None;
+        let released = scancode & 0x7F;
+        return match released {
+            0x48 | 0x50 => Some(KeyEvent::KeyUp(released)),
+            _ => None,
+        };
     }
     match scancode {
         0x48 => Some(KeyEvent::ArrowUp),
@@ -168,12 +176,13 @@ fn translate_extended(scancode: u8) -> Option<KeyEvent> {
 
 fn translate_scancode(scancode: u8) -> Option<KeyEvent> {
     if scancode & 0x80 != 0 {
-        match scancode {
-            0xAA => LEFT_SHIFT.store(false, Ordering::Relaxed),
-            0xB6 => RIGHT_SHIFT.store(false, Ordering::Relaxed),
+        let released = scancode & 0x7F;
+        match released {
+            0x2A => LEFT_SHIFT.store(false, Ordering::Relaxed),
+            0x36 => RIGHT_SHIFT.store(false, Ordering::Relaxed),
             _ => {}
         }
-        return None;
+        return Some(KeyEvent::KeyUp(released));
     }
 
     match scancode {

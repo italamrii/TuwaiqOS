@@ -39,6 +39,7 @@ pub enum InputEvent {
     /// here, and this is documented rather than faked with a synthetic
     /// release that never actually happens.
     KeyDown { code: u8 },
+    KeyUp { code: u8 },
     /// Absolute, screen-clamped cursor position (see `mouse.rs`), not a
     /// delta -- the kernel already tracks and clamps cursor position, so a
     /// desktop process never needs to replicate that bookkeeping or risk
@@ -79,6 +80,10 @@ impl InputEvent {
         match self {
             InputEvent::KeyDown { code } => {
                 out[0] = 1;
+                out[1] = code;
+            }
+            InputEvent::KeyUp { code } => {
+                out[0] = 4;
                 out[1] = code;
             }
             InputEvent::MouseMove { x, y } => {
@@ -268,6 +273,10 @@ pub fn push_key_event(event: KeyEvent) {
         KeyEvent::ArrowUp => KEY_ARROW_UP,
         KeyEvent::ArrowDown => KEY_ARROW_DOWN,
         KeyEvent::Escape => KEY_ESCAPE,
+        KeyEvent::KeyUp(scancode) => {
+            push(InputEvent::KeyUp { code: scancode });
+            return;
+        }
         KeyEvent::None => return,
     };
     push(InputEvent::KeyDown { code });

@@ -157,6 +157,7 @@ pub fn run(boot_info: &'static BootInfo, mode: ConsoleMode) -> ! {
                     len = tab_complete(mode, &mut line, len);
                 }
                 KeyEvent::Escape => {}
+                KeyEvent::KeyUp(_) => {}
                 KeyEvent::Enter => {
                     println(mode, "");
                     let command = core::str::from_utf8(&line[..len]).unwrap_or("");
