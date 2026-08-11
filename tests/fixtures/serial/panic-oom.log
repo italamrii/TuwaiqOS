@@ -1,0 +1,51 @@
+task heartbeat: beat #97
+task heartbeat: beat #98
+task heartbeat: beat #99
+task heartbeat: beat #100
+task heartbeat: beat #101
+task heartbeat: beat #102
+task heartbeat: beat #103
+task heartbeat: beat #104
+task heartbeat: beat #105
+task heartbeat: beat #106
+task heartbeat: beat #107
+task heartbeat: beat #108
+task heartbeat: beat #109
+task heartbeat: beat #110
+task heartbeat: beat #111
+task heartbeat: beat #112
+task heartbeat: beat #113
+task heartbeat: beat #114
+task heartbeat: beat #115
+task heartbeat: beat #116
+task heartbeat: beat #117
+task heartbeat: beat #118
+task heartbeat: beat #119
+task heartbeat: beat #120
+task heartbeat: beat #121
+task heartbeat: beat #122
+task heartbeat: beat #123
+task heartbeat: beat #124
+task heartbeat: beat #125
+syscall: MMAP rejected (len=33554432, writable=true)
+munmap_exhaust: mmap/munmap pairs completed = 23
+munmap_exhaust: bump pointer advanced by bytes = 771751936
+munmap_exhaust: phase 2 -- one munmap over pages = 188416
+munmap_exhaust: kernel will allocate 24 bytes per page, total = 4521984
+munmap_exhaust: the kernel is about to request ~4.49 MiB from a 4 MiB heap
+munmap_exhaust: if the next line does not appear, the kernel panicked
+
+=== KERNEL PANIC ===
+panicked at /home/kali/.rustup/toolchains/nightly-2026-06-01-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc/src/alloc.rs:573:9:
+memory allocation of 4521984 bytes failed
+=====================
+task heartbeat: beat #126
+task heartbeat: beat #127
+task heartbeat: beat #128
+task heartbeat: beat #129
+task heartbeat: beat #130
+task heartbeat: beat #131
+task heartbeat: beat #132
+task heartbeat: beat #133
+task heartbeat: beat #134
+task heartbeat: beat #135

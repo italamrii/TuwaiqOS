@@ -1,0 +1,20 @@
+INFO : Framebuffer info: FrameBufferInfo { byte_len: 2764800, width: 1280, height: 720, pixel_format: Bgr, bytes_per_pixel: 3, stride: 1280 }
+INFO : 4th Stage
+INFO : BiosInfo { stage_4: Region { start: 130000, len: 24250 }, kernel: Region { start: 1000000, len: 93e4b0 }, ramdisk: Region { start: 193f000, len: 0 }, config_file: Region { start: 193f000, len: 0 }, last_used_addr: 193efff, framebuffer: BiosFramebufferInfo { region: Region { start: fd000000, len: 2a3000 }, width: 500, height: 2d0, bytes_per_pixel: 3, stride: 500, pixel_format: Bgr }, memory_map_addr: 11f20, memory_map_len: 7 }
+INFO : BIOS boot
+INFO : Elf file loaded at Pointer {
+    addr: 0x0000000001000000,
+    metadata: 9692336,
+}
+INFO : virtual_address_offset: 0x10000000000
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(4), offset: 0, virtual_addr: 0, physical_addr: 0, file_size: 681e4, mem_size: 681e4, align: 1000 })
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(5), offset: 681f0, virtual_addr: 691f0, physical_addr: 691f0, file_size: dcfb3, mem_size: dcfb3, align: 1000 })
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(6), offset: 1451a8, virtual_addr: 1471a8, physical_addr: 1471a8, file_size: f2e8, mem_size: fe58, align: 1000 })
+INFO : Mapping bss section
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(6), offset: 154490, virtual_addr: 157490, physical_addr: 157490, file_size: 160, mem_size: 407fe8, align: 1000 })
+INFO : Mapping bss section
+INFO : Entry point at: 0x100000908b0
+INFO : Creating GDT at PhysAddr(0x1d78000)
+INFO : Map framebuffer
+INFO : Map physical memory
+INFO : Allocate bootinfo
