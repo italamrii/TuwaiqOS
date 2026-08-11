@@ -1001,12 +1001,14 @@ pub fn kill(id: u32) -> Result<(), &'static str> {
     if id == 1 {
         return Err("cannot kill shell task");
     }
-
     let reclaim = with_scheduler(|slot| {
         let sched = slot.as_mut().ok_or("scheduler not initialized")?;
         let is_current = sched.tasks[sched.current].id == id;
         match sched.tasks.iter_mut().find(|t| t.id == id) {
             Some(task) => {
+                if task.state == TaskState::Terminated {
+                    return Err("task already terminated");
+                }
                 task.state = TaskState::Terminated;
                 task.terminated_at_tick = crate::interrupts::ticks();
                 if is_current {
@@ -1018,6 +1020,7 @@ pub fn kill(id: u32) -> Result<(), &'static str> {
             None => Err("task not found"),
         }
     })?;
+
 
     if let Some(space) = reclaim {
         // Safety: confirmed above that `id` was not the current task's id,
