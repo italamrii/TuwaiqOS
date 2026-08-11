@@ -1,0 +1,8 @@
+# Named `x86_64` so `use x86_64::instructions::interrupts;` in the kernel's
+# `fs.rs` resolves without the source being touched.
+[package]
+name = "x86_64"
+version = "0.0.0"
+edition = "2021"
+publish = false
+

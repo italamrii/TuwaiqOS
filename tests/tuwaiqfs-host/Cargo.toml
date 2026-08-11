@@ -1,0 +1,28 @@
+[package]
+name = "tuwaiqfs-host-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+# Deliberately its own workspace: the kernel workspace builds `no_std` with
+# `panic = "abort"` and a `build-std` profile aimed at `x86_64-unknown-none`.
+# These tests are host binaries and must not perturb any of that.
+[workspace]
+
+[dependencies]
+# `fs.rs` locks with `spin::Mutex`. The real crate works unchanged on the host.
+spin = "0.9"
+# `fs.rs` also calls `x86_64::instructions::interrupts::without_interrupts`,
+# whose real implementation executes privileged instructions. See
+# `shims/x86_64/src/lib.rs` for why a stand-in is required rather than
+# preferred.
+x86_64 = { path = "shims/x86_64" }
+
+[dev-dependencies]
+
+[profile.test]
+# The kernel's dev profile runs with overflow checks on. Keep them on here so
+# an arithmetic overflow in parsing code fails a test instead of wrapping.
+overflow-checks = true
+debug-assertions = true
