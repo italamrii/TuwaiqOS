@@ -1,0 +1,19 @@
+# The workspace root's .cargo/config.toml enables `-Z build-std` with
+# ["core", "alloc", "compiler_builtins"] for the bare-metal kernel target.
+# Cargo *merges* config arrays rather than replacing them, and that setting is
+# inherited by anything built underneath the repository -- including these
+# host tests.
+#
+# The result, without this file, is a duplicate-lang-item error: the sysroot's
+# precompiled `std` carries its own `core`, and build-std supplies a second one
+# built from source.
+#
+# Adding `std` (and its dependencies) to the list makes the whole graph come
+# from source, so exactly one `core` exists. The first build takes a few
+# minutes; afterwards it is cached like any other dependency.
+#
+# The alternative -- editing the workspace root config -- would change how the
+# kernel itself is built, which these tests must never do.
+
+[unstable]
+build-std = ["std", "panic_unwind", "proc_macro"]

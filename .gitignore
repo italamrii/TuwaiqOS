@@ -5,3 +5,6 @@
 **/*.pdb
 .DS_Store
 Thumbs.db
+
+# Host-side test crate build output
+/tests/tuwaiqfs-host/target/
