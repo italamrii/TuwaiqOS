@@ -497,6 +497,26 @@ fn embedded_program(name: &str) -> Option<&'static [u8]> {
             env!("CARGO_MANIFEST_DIR"),
             "/../target/x86_64-unknown-none/release/bad_ud2"
         ))),
+        // Guest-isolation probes. Unlike the `bad_*` programs these do not
+        // each assert one syscall rejection -- they test what Ring 3 can reach
+        // without going through a syscall at all: descriptor tables, MSRs,
+        // hardware ports, and the kernel's window onto physical memory.
+        "probe_descriptors" => Some(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/x86_64-unknown-none/release/probe_descriptors"
+        ))),
+        "probe_msr" => Some(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/x86_64-unknown-none/release/probe_msr"
+        ))),
+        "probe_portio" => Some(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/x86_64-unknown-none/release/probe_portio"
+        ))),
+        "probe_leaked" => Some(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/x86_64-unknown-none/release/probe_leaked"
+        ))),
         "bad_divzero" => Some(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../target/x86_64-unknown-none/release/bad_divzero"
