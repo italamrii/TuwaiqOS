@@ -497,6 +497,13 @@ fn embedded_program(name: &str) -> Option<&'static [u8]> {
             env!("CARGO_MANIFEST_DIR"),
             "/../target/x86_64-unknown-none/release/bad_ud2"
         ))),
+        // Measures whether the `syscall` instruction decodes at CPL=3, which
+        // decides where a Linux compatibility layer can live. See
+        // docs/linux-abi-feasibility.md
+        "probe_syscall_insn" => Some(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/x86_64-unknown-none/release/probe_syscall_insn"
+        ))),
         "bad_divzero" => Some(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../target/x86_64-unknown-none/release/bad_divzero"
