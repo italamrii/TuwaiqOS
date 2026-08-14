@@ -15,7 +15,7 @@ Write-Host "=== TuwaiqOS build ===" -ForegroundColor Cyan
 Write-Host "Toolchain: $env:RUSTUP_TOOLCHAIN"
 
 Write-Host ""
-Write-Host "[1/3] Building all 25 userland ELF programs..." -ForegroundColor Yellow
+Write-Host "[1/3] Building all 26 userland ELF programs..." -ForegroundColor Yellow
 # Standalone crate, own [workspace] -- see userland/hello/Cargo.toml. Must
 # build before the kernel/image: shell.rs embeds explicit test fixtures and
 # build.rs packages normal applications into TuwaiqFS. Sharing CARGO_TARGET_DIR
@@ -39,7 +39,9 @@ $UserlandBins = @(
     "bad_ud2", "bad_divzero", "bad_mmap", "bad_munmap", "bad_display", "bad_input",
     "mmap_ro_fault", "mmap_nx_fault", "post_unmap_fault", "mmap_exhaustion", "mmap_partial_failure",
     "desktop", "desktop_peer", "file_api_test", "file_mutation_test", "file_manager", "terminal",
-    "tuwaiq_ai", "tuwaiq_ai_fault"
+    "tuwaiq_ai", "tuwaiq_ai_fault",
+    # Interface identity prototype -- see docs/tuwaiq-shell.md
+    "tuwaiq_shell"
 )
 foreach ($bin in $UserlandBins) {
     $path = Join-Path $ProjectRoot "target\x86_64-unknown-none\release\$bin"

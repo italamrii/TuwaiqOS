@@ -357,6 +357,7 @@ fn execute_command(boot_info: &BootInfo, mode: ConsoleMode, line: &str) {
         "autoreap" => handle_automatic_reap(mode, args),
         "killreap" => handle_kill_reap(mode, args),
         "desktop" => handle_desktop(mode),
+        "tuwaiqshell" => handle_tuwaiq_shell(mode),
         "desktoppeer" => handle_desktop_peer(mode),
         "desktopfaultpeer" => handle_desktop_fault_peer(mode),
         "desktopkilltest" => handle_desktop_kill_test(mode),
@@ -496,6 +497,13 @@ fn embedded_program(name: &str) -> Option<&'static [u8]> {
         "bad_ud2" => Some(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../target/x86_64-unknown-none/release/bad_ud2"
+        ))),
+        // Interface identity prototype. A separate program from `desktop`
+        // rather than a change to it, so the covered desktop stays untouched
+        // and the two can be compared. See docs/tuwaiq-shell.md
+        "tuwaiq_shell" => Some(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/x86_64-unknown-none/release/tuwaiq_shell"
         ))),
         "bad_divzero" => Some(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1828,6 +1836,41 @@ fn run_packaged_foreground(path: &str) -> Result<(u32, Option<i32>), &'static st
     let telemetry = release_desktop_foreground(id);
     emit_input_telemetry("packaged-app-release", telemetry);
     Ok((id, exit))
+}
+
+/// Run the interface identity prototype in the foreground.
+///
+/// Identical in mechanism to `handle_desktop`: the same
+/// `spawn_foreground_process` path, the same input ownership, the same
+/// release and reap on exit. The only difference is which program is loaded,
+/// so this adds no privilege, no service, and no new lifecycle for the
+/// desktop to get wrong.
+///
+/// It is a separate command rather than a replacement because
+/// `scripts/phase5-acceptance.ps1` covers `desktop` in detail and that
+/// coverage should keep testing the same binary it always has.
+fn handle_tuwaiq_shell(mode: ConsoleMode) {
+    let Some(bytes) = embedded_program("tuwaiq_shell") else {
+        println(mode, "tuwaiqshell: embedded program missing");
+        return;
+    };
+    task::reap_now();
+    let id = match spawn_foreground_process("tuwaiq_shell", bytes) {
+        Ok(id) => id,
+        Err(reason) => {
+            print(mode, "Tuwaiq shell load error: ");
+            println(mode, reason);
+            return;
+        }
+    };
+    crate::serial_println!("tuwaiq-shell: foreground launch pid={}", id);
+    wait_for_terminated(id);
+    let telemetry = release_desktop_foreground(id);
+    emit_input_telemetry("tuwaiq-shell-release", telemetry);
+    clear_screen(mode);
+    print(mode, "Tuwaiq shell exited: ");
+    print_process_result(mode, id);
+    task::reap_now();
 }
 
 /// Run the desktop and an ordinary Ring 3 peer concurrently. Both are
