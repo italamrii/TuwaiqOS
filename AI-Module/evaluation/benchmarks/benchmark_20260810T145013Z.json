@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-08-10T14:50:13.354506Z",
+  "model_name": "tuwaiq_ai_system_intelligence",
+  "model_version": "v0.1.0",
+  "input_file": "evaluation/benchmarks/benchmark_20260810T145013Z.json",
+  "sample_count": 2400,
+  "synthetic_evaluation": true,
+  "metrics": {
+    "true_positives": 353,
+    "true_negatives": 1835,
+    "false_positives": 205,
+    "false_negatives": 7,
+    "precision": 0.632616,
+    "recall": 0.980556,
+    "f1_score": 0.769063,
+    "false_positive_rate": 0.10049,
+    "false_negative_rate": 0.019444
+  },
+  "decision_score_mean": 0.027600005216057242,
+  "decision_score_std": 0.07203469865960667,
+  "inference_latency_ms_per_sample": 1.0850880830548704,
+  "peak_prediction_memory_bytes": 1272616,
+  "model_size_bytes": 872068
+}

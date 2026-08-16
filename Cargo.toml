@@ -1,5 +1,6 @@
 ﻿[workspace]
 members = [".", "kernel"]
+exclude = ["AI-Module/broker", "AI-Module/telemetry-provider"]
 default-members = ["."]
 resolver = "2"
 

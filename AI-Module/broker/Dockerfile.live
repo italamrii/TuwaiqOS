@@ -1,0 +1,11 @@
+# Live-proof broker image using already-local ubuntu:24.04.
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends cargo rustc build-essential ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY Cargo.toml ./
+COPY src ./src
+RUN cargo build --release
+ENTRYPOINT ["/src/target/release/tuwaiq-agent-broker"]

@@ -1,0 +1,55 @@
+{
+  "title": "Tuwaiq System Telemetry Provider Input",
+  "type": "object",
+  "description": "Structured telemetry record consumed by the AI System Intelligence inference pipeline. Mirrors data_collection/collector/schema.py's validate_record() exactly -- keep both in sync (see tests/test_schema_matches_validator.py).",
+  "required": [
+    "timestamp",
+    "cpu_utilization_pct",
+    "ram_utilization_pct",
+    "available_ram_mb",
+    "process_count",
+    "disk_read_kbps",
+    "disk_write_kbps",
+    "network_in_kbps",
+    "network_out_kbps",
+    "uptime_seconds",
+    "error_event_count",
+    "service_state",
+    "source",
+    "scenario_label",
+    "is_synthetic_anomaly"
+  ],
+  "properties": {
+    "timestamp": {"type": "string", "format": "date-time"},
+    "cpu_utilization_pct": {"type": "number", "minimum": 0, "maximum": 100},
+    "ram_utilization_pct": {"type": "number", "minimum": 0, "maximum": 100},
+    "available_ram_mb": {"type": "number", "minimum": 0},
+    "process_count": {"type": "integer", "minimum": 0},
+    "disk_read_kbps": {"type": "number", "minimum": 0},
+    "disk_write_kbps": {"type": "number", "minimum": 0},
+    "network_in_kbps": {"type": "number", "minimum": 0},
+    "network_out_kbps": {"type": "number", "minimum": 0},
+    "uptime_seconds": {"type": "number", "minimum": 0},
+    "error_event_count": {"type": "integer", "minimum": 0},
+    "service_state": {"type": "string", "enum": ["healthy", "degraded", "critical", "unknown"]},
+    "source": {
+      "type": "string",
+      "enum": ["synthetic", "future_real"],
+      "description": "Provenance of this record. 'future_real' denotes genuinely live telemetry (e.g. tuwaiq-telemetry-provider), as opposed to generated training data."
+    },
+    "scenario_label": {
+      "type": "string",
+      "description": "Free-text label. Used by the training pipeline to tag synthetic scenarios (e.g. 'high_cpu_spike'); live producers may use a fixed label such as 'live_snapshot'."
+    },
+    "is_synthetic_anomaly": {
+      "type": "boolean",
+      "description": "True only for deliberately-injected synthetic anomaly records used in training/evaluation. Always false for real captured data."
+    }
+  },
+  "additionalProperties": false,
+  "future_integration_requirements": [
+    "Kernel/userland telemetry provider endpoint",
+    "Permission and policy validation layer",
+    "Read-only telemetry access policy"
+  ]
+}

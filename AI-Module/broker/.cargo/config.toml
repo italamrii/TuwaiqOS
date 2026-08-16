@@ -1,0 +1,5 @@
+# Host-side broker uses the normal standard library.
+# Override the repo-root kernel `build-std` settings.
+[unstable]
+build-std = []
+build-std-features = []
