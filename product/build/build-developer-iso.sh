@@ -81,7 +81,7 @@ EOF
   # (tuwaiq user, SDDM autologin, Tuwaiq branding) and live-config would fight it.
   # Only add live-image/developer dependencies absent from the existing D1
   # rootfs. Keep the installed Plasma package set intact.
-  PKGS=(live-boot live-boot-initramfs-tools git openssh-client nano vim less htop unzip wget ca-certificates systemd-resolved libnss-resolve)
+  PKGS=(live-boot live-boot-initramfs-tools git openssh-client nano vim less htop unzip wget ca-certificates systemd-resolved libnss-resolve python3)
   log "install: ${PKGS[*]}"
   attempt=1
   until chroot "${ISO_ROOT}" apt-get -o Acquire::Retries=5 install -y --no-install-recommends "${PKGS[@]}"; do
@@ -95,6 +95,40 @@ EOF
   chroot_umount
   trap - EXIT
   echo 'packages-added' >> "${STAGE}"
+fi
+
+# ------------------------------------------------------------- build AI broker
+# Native Linux broker binary for Product /proc evidence (not Docker telemetry).
+# Copy out of the repo tree so Cargo does not inherit the kernel workspace
+# .cargo/config.toml (build-std / custom target).
+BROKER_SRC="/src/product/ai/broker"
+BROKER_BUILD="/tmp/tuwaiq-agent-broker-src"
+BROKER_OUT="/work/tuwaiq-agent-broker"
+if [[ -x "${BROKER_OUT}" ]] && grep -qx 'ai-broker-built' "${STAGE}" 2>/dev/null; then
+  log "resume: reusing ${BROKER_OUT}"
+else
+  log "build tuwaiq-agent-broker (release) for Product rootfs"
+  apt-get install -y -qq --no-install-recommends cargo rustc build-essential pkg-config >/dev/null
+  rm -rf "${BROKER_BUILD}"
+  mkdir -p "${BROKER_BUILD}"
+  rsync -a --delete \
+    --exclude target \
+    --exclude .cargo \
+    "${BROKER_SRC}/" "${BROKER_BUILD}/"
+  ( cd "${BROKER_BUILD}" && CARGO_HOME="${BROKER_BUILD}/.cargo-home" cargo build --release )
+  install -m 0755 "${BROKER_BUILD}/target/release/tuwaiq-agent-broker" "${BROKER_OUT}"
+  echo 'ai-broker-built' >> "${STAGE}"
+fi
+export TUWAIQ_AI_BROKER_BIN="${BROKER_OUT}"
+
+# Ensure python3 present even on resumed ISO rootfs builds
+if [[ ! -x "${ISO_ROOT}/usr/bin/python3" ]]; then
+  log "install python3 for tuwaiq-ai service"
+  chroot_mount
+  trap chroot_umount EXIT
+  chroot "${ISO_ROOT}" apt-get -o Acquire::Retries=3 install -y --no-install-recommends python3 || true
+  chroot_umount
+  trap - EXIT
 fi
 
 # ------------------------------------------------------------- live tailoring
@@ -114,6 +148,18 @@ fi
 cp "${apply_branding_backup}" /src/product/scripts/apply-branding.sh
 rm -f "${apply_branding_backup}"
 
+# Ensure AI units enabled even if branding was partially resumed from older tree
+if [[ -f "${ISO_ROOT}/usr/lib/systemd/system/tuwaiq-ai.service" ]]; then
+  mkdir -p "${ISO_ROOT}/etc/systemd/system/multi-user.target.wants"
+  ln -sf /usr/lib/systemd/system/tuwaiq-agent-broker.service \
+    "${ISO_ROOT}/etc/systemd/system/multi-user.target.wants/tuwaiq-agent-broker.service"
+  ln -sf /usr/lib/systemd/system/tuwaiq-ai.service \
+    "${ISO_ROOT}/etc/systemd/system/multi-user.target.wants/tuwaiq-ai.service"
+  # Re-install broker binary if branding ran without TUWAIQ_AI_BROKER_BIN
+  if [[ -x "${BROKER_OUT}" ]]; then
+    install -m 0755 "${BROKER_OUT}" "${ISO_ROOT}/usr/libexec/tuwaiq/tuwaiq-agent-broker"
+  fi
+fi
 # `apply-branding.sh` installs the resolver stub symlink when it exists; make
 # the live-image contract explicit after the resolver packages are installed.
 rm -f "${ISO_ROOT}/etc/resolv.conf"

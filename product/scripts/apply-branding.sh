@@ -277,4 +277,14 @@ Future AI boundary: read status JSON only — never unrestricted root.
 Wi-Fi: infrastructure packages may be present; hardware support is NOT claimed without real-device tests.
 EOF
 
+# --- Tuwaiq AI userspace (non-boot-critical) ---
+AI_PKG="${PRODUCT_ROOT}/ai/packaging"
+if [[ -x "${AI_PKG}/install-into-rootfs.sh" ]] || [[ -f "${AI_PKG}/install-into-rootfs.sh" ]]; then
+  sed -i 's/\r$//' "${AI_PKG}/install-into-rootfs.sh" 2>/dev/null || true
+  bash "${AI_PKG}/install-into-rootfs.sh" "${ROOT}" \
+    "${TUWAIQ_AI_BROKER_BIN:-}"
+else
+  echo "apply-branding: AI packaging script missing; skipping AI install" >&2
+fi
+
 echo "Tuwaiq D1 branding + connectivity applied to ${ROOT}"

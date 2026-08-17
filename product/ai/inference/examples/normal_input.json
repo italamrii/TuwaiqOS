@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-01-01T00:00:00Z",
+  "cpu_utilization_pct": 33.0,
+  "ram_utilization_pct": 46.0,
+  "available_ram_mb": 4424.0,
+  "process_count": 122,
+  "disk_read_kbps": 1210.0,
+  "disk_write_kbps": 890.0,
+  "network_in_kbps": 840.0,
+  "network_out_kbps": 790.0,
+  "uptime_seconds": 5400.0,
+  "error_event_count": 1,
+  "service_state": "healthy",
+  "source": "synthetic",
+  "scenario_label": "normal",
+  "is_synthetic_anomaly": false
+}

@@ -1,0 +1,33 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+
+# Build / runtime artifacts
+broker/target/
+telemetry-provider/target/
+**/Cargo.lock
+tuwaiq-agent-broker-audit.log
+*.audit.log
+
+# Model weights and caches — never commit
+models/exported/
+**/*.pkl
+**/*.gguf
+**/*.safetensors
+**/*.bin
+**/*.pt
+**/*.onnx
+.cache/
+huggingface/
+ollama/
+
+# Local evidence / measurement dumps
+evidence/
+measurements/
+*.qcow2
+*.iso

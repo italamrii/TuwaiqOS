@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-08-13T11:35:26.220892030+00:00",
+  "cpu_utilization_pct": 4.761904716491699,
+  "ram_utilization_pct": 9.140847671429366,
+  "available_ram_mb": 3632.375,
+  "process_count": 81,
+  "disk_read_kbps": 0.0,
+  "disk_write_kbps": 0.0,
+  "network_in_kbps": 0.107421875,
+  "network_out_kbps": 0.0,
+  "uptime_seconds": 172.0,
+  "error_event_count": 0,
+  "service_state": "healthy"
+}

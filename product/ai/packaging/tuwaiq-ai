@@ -1,0 +1,5 @@
+#!/bin/sh
+# Product CLI — talks only to the local tuwaiq-ai.service Unix socket.
+set -eu
+export PYTHONPATH="${PYTHONPATH:-/usr/lib/tuwaiq/ai/agent}"
+exec /usr/bin/python3 /usr/lib/tuwaiq/ai/agent/product_cli.py "$@"

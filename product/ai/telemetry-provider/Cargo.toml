@@ -1,0 +1,17 @@
+[workspace]
+
+[package]
+name = "tuwaiq-telemetry-provider"
+version = "0.1.0"
+edition = "2021"
+description = "Stage 1 read-only System Telemetry Provider. Emits objects matching ai_development/system_interface/schemas/telemetry_input.schema.json from real host system state, for consumption by the existing Isolation Forest inference pipeline (inference/predict.py)."
+
+[[bin]]
+name = "tuwaiq-telemetry-provider"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+sysinfo = "0.32"

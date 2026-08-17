@@ -1,0 +1,36 @@
+{
+  "title": "AI System Intelligence Inference Output",
+  "type": "object",
+  "required": [
+    "timestamp",
+    "model_name",
+    "model_version",
+    "anomaly_detected",
+    "anomaly_score",
+    "severity",
+    "input_summary",
+    "indicators",
+    "explanation",
+    "inference_generated_at"
+  ],
+  "properties": {
+    "timestamp": {"type": "string", "format": "date-time"},
+    "model_name": {"type": "string"},
+    "model_version": {"type": "string"},
+    "anomaly_detected": {"type": "boolean"},
+    "anomaly_score": {"type": "number"},
+    "severity": {"type": "string", "enum": ["none", "low", "medium", "high"]},
+    "input_summary": {"type": "object"},
+    "indicators": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "explanation": {"type": "string"},
+    "inference_generated_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false,
+  "notes": [
+    "Detection output is not guaranteed root-cause diagnosis.",
+    "Model output is advisory until integrated with validated system telemetry."
+  ]
+}

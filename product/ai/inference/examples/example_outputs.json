@@ -1,0 +1,126 @@
+[
+  {
+    "scenario": "normal",
+    "prediction": {
+      "timestamp": "2026-01-01T00:00:00Z",
+      "model_name": "tuwaiq_ai_system_intelligence",
+      "model_version": "v0.1.0",
+      "anomaly_detected": false,
+      "anomaly_score": 0.0,
+      "severity": "none",
+      "input_summary": {
+        "cpu_utilization_pct": 31.0,
+        "ram_utilization_pct": 43.0,
+        "available_ram_mb": 4669.0,
+        "process_count": 118,
+        "disk_read_kbps": 1250.0,
+        "disk_write_kbps": 980.0,
+        "network_in_kbps": 820.0,
+        "network_out_kbps": 790.0,
+        "error_event_count": 1,
+        "service_state": "healthy",
+        "scenario_label": "normal",
+        "source": "synthetic"
+      },
+      "indicators": [],
+      "explanation": "Anomaly detection indicates unusual statistical behavior; it is not a root-cause diagnosis.",
+      "inference_generated_at": "2026-08-10T14:50:23.952168Z"
+    }
+  },
+  {
+    "scenario": "cpu_anomaly",
+    "prediction": {
+      "timestamp": "2026-01-01T00:00:05Z",
+      "model_name": "tuwaiq_ai_system_intelligence",
+      "model_version": "v0.1.0",
+      "anomaly_detected": true,
+      "anomaly_score": 0.131363,
+      "severity": "medium",
+      "input_summary": {
+        "cpu_utilization_pct": 98.0,
+        "ram_utilization_pct": 62.0,
+        "available_ram_mb": 3113.0,
+        "process_count": 165,
+        "disk_read_kbps": 2200.0,
+        "disk_write_kbps": 1700.0,
+        "network_in_kbps": 1200.0,
+        "network_out_kbps": 1000.0,
+        "error_event_count": 6,
+        "service_state": "degraded",
+        "scenario_label": "high_cpu",
+        "source": "synthetic"
+      },
+      "indicators": [
+        "cpu_pressure",
+        "elevated_error_events"
+      ],
+      "explanation": "Anomaly detection indicates unusual statistical behavior; it is not a root-cause diagnosis.",
+      "inference_generated_at": "2026-08-10T14:50:23.953236Z"
+    }
+  },
+  {
+    "scenario": "memory_anomaly",
+    "prediction": {
+      "timestamp": "2026-01-01T00:00:10Z",
+      "model_name": "tuwaiq_ai_system_intelligence",
+      "model_version": "v0.1.0",
+      "anomaly_detected": true,
+      "anomaly_score": 0.160843,
+      "severity": "medium",
+      "input_summary": {
+        "cpu_utilization_pct": 57.0,
+        "ram_utilization_pct": 97.0,
+        "available_ram_mb": 245.0,
+        "process_count": 188,
+        "disk_read_kbps": 2100.0,
+        "disk_write_kbps": 1500.0,
+        "network_in_kbps": 1300.0,
+        "network_out_kbps": 920.0,
+        "error_event_count": 7,
+        "service_state": "degraded",
+        "scenario_label": "high_memory",
+        "source": "synthetic"
+      },
+      "indicators": [
+        "memory_pressure",
+        "elevated_error_events"
+      ],
+      "explanation": "Anomaly detection indicates unusual statistical behavior; it is not a root-cause diagnosis.",
+      "inference_generated_at": "2026-08-10T14:50:23.954232Z"
+    }
+  },
+  {
+    "scenario": "mixed_anomaly",
+    "prediction": {
+      "timestamp": "2026-01-01T00:00:15Z",
+      "model_name": "tuwaiq_ai_system_intelligence",
+      "model_version": "v0.1.0",
+      "anomaly_detected": true,
+      "anomaly_score": 0.227209,
+      "severity": "medium",
+      "input_summary": {
+        "cpu_utilization_pct": 95.0,
+        "ram_utilization_pct": 96.0,
+        "available_ram_mb": 290.0,
+        "process_count": 230,
+        "disk_read_kbps": 9800.0,
+        "disk_write_kbps": 9300.0,
+        "network_in_kbps": 11000.0,
+        "network_out_kbps": 9800.0,
+        "error_event_count": 12,
+        "service_state": "critical",
+        "scenario_label": "mixed_resource_anomaly",
+        "source": "synthetic"
+      },
+      "indicators": [
+        "cpu_pressure",
+        "memory_pressure",
+        "disk_io_pressure",
+        "network_pressure",
+        "elevated_error_events"
+      ],
+      "explanation": "Anomaly detection indicates unusual statistical behavior; it is not a root-cause diagnosis.",
+      "inference_generated_at": "2026-08-10T14:50:23.956221Z"
+    }
+  }
+]

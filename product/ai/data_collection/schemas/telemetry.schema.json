@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tuwaiq Telemetry Record",
+  "description": "Synthetic and future real telemetry schema for Tuwaiq AI System Intelligence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "timestamp",
+    "cpu_utilization_pct",
+    "ram_utilization_pct",
+    "available_ram_mb",
+    "process_count",
+    "disk_read_kbps",
+    "disk_write_kbps",
+    "network_in_kbps",
+    "network_out_kbps",
+    "uptime_seconds",
+    "error_event_count",
+    "service_state",
+    "source",
+    "scenario_label",
+    "is_synthetic_anomaly"
+  ],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "cpu_utilization_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "ram_utilization_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "available_ram_mb": {
+      "type": "number",
+      "minimum": 0
+    },
+    "process_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "disk_read_kbps": {
+      "type": "number",
+      "minimum": 0
+    },
+    "disk_write_kbps": {
+      "type": "number",
+      "minimum": 0
+    },
+    "network_in_kbps": {
+      "type": "number",
+      "minimum": 0
+    },
+    "network_out_kbps": {
+      "type": "number",
+      "minimum": 0
+    },
+    "uptime_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "error_event_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "service_state": {
+      "type": "string",
+      "enum": ["healthy", "degraded", "critical", "unknown"]
+    },
+    "source": {
+      "type": "string",
+      "enum": ["synthetic", "future_real"]
+    },
+    "scenario_label": {
+      "type": "string"
+    },
+    "is_synthetic_anomaly": {
+      "type": "boolean"
+    }
+  }
+}

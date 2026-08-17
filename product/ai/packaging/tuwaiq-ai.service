@@ -1,0 +1,46 @@
+[Unit]
+Description=Tuwaiq AI local agent / Unix-socket API
+Documentation=file:///usr/share/tuwaiqos/AI-PRODUCT.md
+# Non-boot-critical: After broker only. Never Before=display-manager or graphical.target.
+After=tuwaiq-agent-broker.service local-fs.target
+Wants=tuwaiq-agent-broker.service
+
+[Service]
+Type=simple
+Environment=TUWAIQ_AI_PROVIDER=local
+Environment=TUWAIQ_AI_MODEL=qwen3.5:9b
+Environment=TUWAIQ_AI_OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+Environment=TUWAIQ_AI_BROKER_SOCKET=/run/tuwaiq/ai-broker.sock
+Environment=TUWAIQ_AI_SOCKET=/run/tuwaiq/ai.sock
+Environment=TUWAIQ_AI_BROKER_PATH=/usr/libexec/tuwaiq/tuwaiq-agent-broker
+Environment=PYTHONPATH=/usr/lib/tuwaiq/ai/agent
+ExecStart=/usr/bin/python3 /usr/lib/tuwaiq/ai/agent/service_main.py
+RuntimeDirectory=tuwaiq
+RuntimeDirectoryMode=0755
+# Shared with tuwaiq-agent-broker.service. Preserve keeps the broker
+# socket inode when this unit is restarted.
+RuntimeDirectoryPreserve=yes
+StateDirectory=tuwaiq/ai
+StateDirectoryMode=0755
+Restart=on-failure
+RestartSec=3s
+StartLimitIntervalSec=90
+StartLimitBurst=5
+TimeoutStartSec=20
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/run/tuwaiq /var/lib/tuwaiq/ai
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=512M
+TasksMax=128
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
