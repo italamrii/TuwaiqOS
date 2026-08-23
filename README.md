@@ -43,9 +43,18 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for subsystem details.
 
 ## Build
 
+Windows (PowerShell):
+
 ```powershell
 cd path\to\TuwaiqOS
 .\scripts\build.ps1
+```
+
+Linux/macOS:
+
+```bash
+cd path/to/TuwaiqOS
+./scripts/build.sh
 ```
 
 Output: `target\debug\boot-bios-tuwaiqos.img`
