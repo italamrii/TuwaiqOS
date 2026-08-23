@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Least privilege: this workflow only reads the repository and uploads an
+# artifact. It never needs write scopes and never uses secrets. Using the
+# `pull_request` event (not `pull_request_target`) keeps fork PRs sandboxed
+# with a read-only token.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref (e.g. a force-push to a PR branch).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: fmt + build image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            userland/hello/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Materialize pinned toolchain
+        # rustup reads rust-toolchain.toml and installs the pinned nightly plus
+        # its components (rust-src, llvm-tools-preview, rustfmt, clippy) on first
+        # use. Running `rustup show` surfaces the resolved toolchain in the logs.
+        run: rustup show
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Build (userland -> kernel -> image)
+        run: ./scripts/build.sh
+
+      - name: Verify disk image exists
+        run: test -f target/debug/boot-bios-tuwaiqos.img
+
+      - name: Upload disk image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: boot-bios-tuwaiqos-img
+          path: target/debug/boot-bios-tuwaiqos.img
+          retention-days: 7
+          if-no-files-found: error
