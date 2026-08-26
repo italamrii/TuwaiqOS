@@ -63,6 +63,15 @@ if (-not (Test-Path -LiteralPath $Qemu -PathType Leaf)) {
     throw "qemu-system-x86_64 was not found in PATH or at '$Qemu'."
 }
 
+# -WindowStyle is a Windows-only Start-Process parameter; Unix PowerShell
+# rejects it outright. QEMU is already headless (-display none) -- the style
+# only hides the extra console window Windows would open for the child.
+$HiddenWindowStyle = if ($PSVersionTable.PSVersion.Major -lt 6 -or $IsWindows) {
+    @{ WindowStyle = 'Hidden' }
+} else {
+    @{}
+}
+
 $SourceImageHash = (Get-FileHash -LiteralPath $Image -Algorithm SHA256).Hash.ToLowerInvariant()
 $TestImage = Join-Path $OutDir "acceptance.img"
 Copy-Item -LiteralPath $Image -Destination $TestImage
@@ -290,7 +299,7 @@ try {
         "-monitor", "tcp:127.0.0.1:$MonitorPort,server,nowait",
         "-no-shutdown"
     )
-    $Proc = Start-Process -FilePath $Qemu -ArgumentList $arguments -PassThru -WindowStyle Hidden
+    $Proc = Start-Process -FilePath $Qemu -ArgumentList $arguments -PassThru @HiddenWindowStyle
     $SerialClient = Connect-Tcp $SerialPort "serial"
     $MonitorClient = Connect-Tcp $MonitorPort "monitor"
     $SerialStream = $SerialClient.GetStream()
@@ -541,7 +550,7 @@ try {
         "-monitor", "tcp:127.0.0.1:$MonitorPort,server,nowait",
         "-no-shutdown"
     )
-    $Proc = Start-Process -FilePath $Qemu -ArgumentList $absentArguments -PassThru -WindowStyle Hidden
+    $Proc = Start-Process -FilePath $Qemu -ArgumentList $absentArguments -PassThru @HiddenWindowStyle
     $SerialClient = Connect-Tcp $SerialPort "mouse-absent serial"
     $MonitorClient = Connect-Tcp $MonitorPort "mouse-absent monitor"
     $SerialStream = $SerialClient.GetStream()

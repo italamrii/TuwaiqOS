@@ -38,6 +38,15 @@ $QemuCommand = Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue
 $Qemu = if ($QemuCommand) { $QemuCommand.Source } else { "C:\Program Files\qemu\qemu-system-x86_64.exe" }
 if (-not (Test-Path -LiteralPath $Qemu -PathType Leaf)) { throw "qemu-system-x86_64 not found." }
 
+# -WindowStyle is a Windows-only Start-Process parameter; Unix PowerShell
+# rejects it outright. QEMU is already headless (-display none) -- the style
+# only hides the extra console window Windows would open for the child.
+$HiddenWindowStyle = if ($PSVersionTable.PSVersion.Major -lt 6 -or $IsWindows) {
+    @{ WindowStyle = 'Hidden' }
+} else {
+    @{}
+}
+
 $SerialLog = Join-Path $OutDir "serial.log"
 $ResultsJson = Join-Path $OutDir "results.json"
 $ManifestJson = Join-Path $OutDir "manifest.json"
@@ -104,7 +113,7 @@ function Start-TestVm {
         "-serial", "tcp:127.0.0.1:$SerialPort,server,nowait",
         "-monitor", "tcp:127.0.0.1:$MonitorPort,server,nowait", "-no-shutdown"
     )
-    $script:Proc = Start-Process -FilePath $Qemu -ArgumentList $arguments -PassThru -WindowStyle Hidden
+    $script:Proc = Start-Process -FilePath $Qemu -ArgumentList $arguments -PassThru @HiddenWindowStyle
     $script:SerialClient = Connect-Tcp $SerialPort "serial"
     $script:MonitorClient = Connect-Tcp $MonitorPort "monitor"
     $script:SerialStream = $SerialClient.GetStream()

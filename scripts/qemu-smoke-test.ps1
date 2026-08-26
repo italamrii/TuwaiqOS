@@ -37,6 +37,15 @@ if (-not $Qemu) {
     $Qemu = $Qemu.Source
 }
 
+# -WindowStyle is a Windows-only Start-Process parameter; Unix PowerShell
+# rejects it outright. QEMU is already headless (-display none) -- the style
+# only hides the extra console window Windows would open for the child.
+$HiddenWindowStyle = if ($PSVersionTable.PSVersion.Major -lt 6 -or $IsWindows) {
+    @{ WindowStyle = 'Hidden' }
+} else {
+    @{}
+}
+
 $MonitorPort = 45465
 $OutDir = Join-Path $ProjectRoot "target\smoke-test"
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
@@ -54,7 +63,7 @@ $proc = Start-Process -FilePath $Qemu -ArgumentList @(
     "-serial", "file:$SerialLog",
     "-monitor", "tcp:127.0.0.1:$MonitorPort,server,nowait",
     "-no-reboot"
-) -PassThru -WindowStyle Hidden
+) -PassThru @HiddenWindowStyle
 
 Start-Sleep -Seconds 20
 
