@@ -1,0 +1,19 @@
+[workspace]
+
+[package]
+name = "tuwaiq-agent-broker"
+version = "0.1.0"
+edition = "2021"
+description = "Rust broker that validates and executes structured tool requests from the Tuwaiq AI Python agent. The only process allowed to touch the OS on the agent's behalf."
+
+[[bin]]
+name = "tuwaiq-agent-broker"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+
+sysinfo = "0.32"
+

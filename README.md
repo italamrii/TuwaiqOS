@@ -2,7 +2,7 @@
 
 Experimental AI-Native Operating System written in Rust.
 
-TuwaiqOS is a bare-metal `no_std` OS that boots in QEMU, provides a terminal shell, recoverable persistent storage (TuwaiqFS v3), preemptive multitasking, loopback networking, and an AI bridge stub for future integration.
+TuwaiqOS is a bare-metal `no_std` OS that boots in QEMU, provides a terminal shell, recoverable persistent storage (TuwaiqFS v3), preemptive multitasking, loopback networking, and a local-first Tuwaiq AI module under `AI-Module/`.
 
 ```text
 TuwaiqOS v0.5
@@ -33,6 +33,24 @@ flowchart TD
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for subsystem details.
+
+## Tuwaiq AI module
+
+The active Tuwaiq AI prototype lives in `AI-Module/` and follows this
+architecture:
+
+```text
+User → Tuwaiq AI UI/CLI → Python Agent → LocalModelProvider → Local Qwen Runtime
+     → Structured Tool Request → Rust Broker → Permission/Policy → OS
+```
+
+- local-only Qwen profiles: 4B / 9B / 27B
+- 9B is the current default target
+- sensitive actions such as `close_application` and `kill_process` require
+  explicit confirmation
+- the Rust broker remains the OS security boundary
+
+See `AI-Module/README.md` and `AI-Module/docs/ARCHITECTURE.md`.
 
 ## Requirements
 

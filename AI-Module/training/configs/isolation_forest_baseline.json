@@ -1,0 +1,25 @@
+{
+  "model_name": "tuwaiq_ai_system_intelligence",
+  "model_version": "v0.1.0",
+  "dataset_version": "synthetic-v1",
+  "seed": 42,
+  "contamination": 0.1,
+  "n_estimators": 200,
+  "max_samples": "auto",
+  "n_rows": 2400,
+  "normal_ratio": 0.85,
+  "sampling_interval_seconds": 5,
+  "feature_columns": [
+    "cpu_utilization_pct",
+    "ram_utilization_pct",
+    "available_ram_mb",
+    "process_count",
+    "disk_read_kbps",
+    "disk_write_kbps",
+    "network_in_kbps",
+    "network_out_kbps",
+    "uptime_seconds",
+    "error_event_count",
+    "service_state_code"
+  ]
+}

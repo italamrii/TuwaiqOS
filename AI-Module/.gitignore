@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+telemetry-provider/target/
+telemetry-provider/Cargo.lock
+telemetry-provider/*.json
+!telemetry-provider/README.md
+*.log
+*.gguf

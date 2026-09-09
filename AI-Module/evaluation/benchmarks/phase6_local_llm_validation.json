@@ -1,0 +1,142 @@
+{
+  "timestamp": "2026-08-27T00:00:51.791350Z",
+  "models": [
+    {
+      "profile_name": "lite",
+      "model_id": "qwen3.5-4b-instruct-quantized",
+      "model_path": "/home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-4b-quantized.gguf",
+      "status": "NOT AVAILABLE",
+      "validation_verdict": "NOT RUN",
+      "tested": false,
+      "runtime": "llama.cpp",
+      "hardware": "device=cpu, threads=4, gpu_layers=0, min_ram_gb=8",
+      "startup_time_ms": null,
+      "model_loading_time_ms": null,
+      "inference_latency_ms": null,
+      "ram_usage_mb": null,
+      "vram_usage_mb": null,
+      "cpu_usage_percent": null,
+      "gpu_usage_percent": null,
+      "tool_call_success": null,
+      "structured_tool_request_validity": "not_run",
+      "response_quality": "not_run",
+      "context_handling": "not_run",
+      "security_result": "not_run",
+      "stability": "not_run",
+      "issues": [
+        "Model file unavailable for profile 'lite' at /home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-4b-quantized.gguf; benchmark not run."
+      ]
+    },
+    {
+      "profile_name": "default",
+      "model_id": "qwen3.5-9b-instruct-quantized",
+      "model_path": "/home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-9b-quantized.gguf",
+      "status": "NOT AVAILABLE",
+      "validation_verdict": "NOT RUN",
+      "tested": false,
+      "runtime": "llama.cpp",
+      "hardware": "device=cpu, threads=6, gpu_layers=0, min_ram_gb=16",
+      "startup_time_ms": null,
+      "model_loading_time_ms": null,
+      "inference_latency_ms": null,
+      "ram_usage_mb": null,
+      "vram_usage_mb": null,
+      "cpu_usage_percent": null,
+      "gpu_usage_percent": null,
+      "tool_call_success": null,
+      "structured_tool_request_validity": "not_run",
+      "response_quality": "not_run",
+      "context_handling": "not_run",
+      "security_result": "not_run",
+      "stability": "not_run",
+      "issues": [
+        "Model file unavailable for profile 'default' at /home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-9b-quantized.gguf; benchmark not run."
+      ]
+    },
+    {
+      "profile_name": "pro",
+      "model_id": "qwen3.5-27b-instruct",
+      "model_path": "/home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-27b.gguf",
+      "status": "NOT AVAILABLE",
+      "validation_verdict": "NOT RUN",
+      "tested": false,
+      "runtime": "llama.cpp",
+      "hardware": "device=cpu, threads=8, gpu_layers=0, min_ram_gb=48",
+      "startup_time_ms": null,
+      "model_loading_time_ms": null,
+      "inference_latency_ms": null,
+      "ram_usage_mb": null,
+      "vram_usage_mb": null,
+      "cpu_usage_percent": null,
+      "gpu_usage_percent": null,
+      "tool_call_success": null,
+      "structured_tool_request_validity": "not_run",
+      "response_quality": "not_run",
+      "context_handling": "not_run",
+      "security_result": "not_run",
+      "stability": "not_run",
+      "issues": [
+        "Model file unavailable for profile 'pro' at /home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-27b.gguf; benchmark not run."
+      ]
+    }
+  ],
+  "security_checks": [
+    {
+      "name": "no shell access",
+      "passed": true,
+      "note": "Tool schemas expose only typed tool arguments and no raw shell-command parameter."
+    },
+    {
+      "name": "no unrestricted subprocess execution",
+      "passed": true,
+      "note": "Rust launches only compiled-in allowlisted applications and does not invoke a shell."
+    },
+    {
+      "name": "no root",
+      "passed": true,
+      "note": "No tool requests privilege escalation or root acquisition."
+    },
+    {
+      "name": "no direct OS access",
+      "passed": true,
+      "note": "The Python agent loop does not shell out or read host state directly."
+    },
+    {
+      "name": "no cloud AI dependency",
+      "passed": true,
+      "note": "The agent/model stack is implemented around LocalModelProvider + llama.cpp only."
+    },
+    {
+      "name": "no bypass around Rust broker",
+      "passed": true,
+      "note": "Tool execution in the Python agent is routed through BrokerClient, preserving the Rust boundary."
+    },
+    {
+      "name": "sensitive operations require confirmation",
+      "passed": true,
+      "note": "Sensitive close/kill tools are exposed to the model, but the active agent loop must hold them in a pending confirmation state until a separate explicit approval turn arrives."
+    },
+    {
+      "name": "TuwaiqOS remains usable if AI crashes",
+      "passed": true,
+      "note": "Phase 5 crash-isolation and restart hooks are present for the local runtime."
+    }
+  ],
+  "cli_demo_results": [
+    "lite: CLI demo not run because the configured model file was unavailable.",
+    "default: CLI demo not run because the configured model file was unavailable.",
+    "pro: CLI demo not run because the configured model file was unavailable."
+  ],
+  "known_limitations": [
+    "Real Phase 6 benchmarks were not available for: default, lite, pro.",
+    "VRAM/GPU metrics remain unavailable on CPU-only or not-run validations and must be re-collected on target hardware."
+  ],
+  "recommendation": "Keep Qwen3.5-9B Quantized as the intended default profile label for now, but do not promote any model as the Tuwaiq AI V1 default until the new Phase 6 runner is executed against all three real local model files on target hardware.",
+  "issues_discovered": [
+    "Model file unavailable for profile 'lite' at /home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-4b-quantized.gguf; benchmark not run.",
+    "Model file unavailable for profile 'default' at /home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-9b-quantized.gguf; benchmark not run.",
+    "Model file unavailable for profile 'pro' at /home/runner/work/TuwaiqOS/TuwaiqOS/AI-Module/models/local/qwen3.5-27b.gguf; benchmark not run."
+  ],
+  "readiness_status": "NOT READY",
+  "readiness_reason": "not all required local Qwen models were benchmarked with real files in this environment"
+}

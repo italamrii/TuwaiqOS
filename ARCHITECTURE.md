@@ -9,6 +9,17 @@ as an unprivileged userspace process. Phase 6 adds a general VFS mount table,
 recoverable persistent application data, a read-only FAT32 resource backend,
 and filesystem-backed application launch as the normal path.
 
+The local-first Tuwaiq AI stack is developed in `AI-Module/` and currently
+uses:
+
+```text
+User → Tuwaiq AI UI/CLI → Python Agent → LocalModelProvider → Local Qwen Runtime
+     → Structured Tool Request → Rust Broker → Permission/Policy → OS
+```
+
+That AI module documentation lives in `AI-Module/docs/ARCHITECTURE.md`; this
+root document remains focused on the OS/kernel architecture.
+
 ```mermaid
 flowchart LR
     subgraph Boot
